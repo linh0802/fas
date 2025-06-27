@@ -14,10 +14,9 @@ import torch.nn.functional as F
 import urllib.request
 from pyzbar import pyzbar
 from datetime import datetime
-from mediapipe.python.solutions.face_detection import FaceDetection
 import json
 import queue
-from typing import Callable, Optional, Any
+from typing import Callable, Optional
 try:
     from pir_sensor import PIRSensor
 except (ImportError, RuntimeError) as e:
@@ -51,7 +50,7 @@ class RecognitionSystem:
 
         # Hàng đợi và callback để giao tiếp với GUI
         self.frame_for_gui = queue.Queue(maxsize=2)
-        self.attendance_callback: Optional[Callable[[Any], None]] = None
+        self.attendance_callback: Optional[Callable] = None
         
         # Khởi tạo các thành phần
         self._update_status_and_logs("Khởi tạo model chống giả mạo...")
@@ -64,7 +63,6 @@ class RecognitionSystem:
         self.sheet = self.setup_google_sheets(sheet_name, credentials_path)
         
         self.last_motion_time = None
-        self.idle_start_time = None
 
         # SỬA LẠI LOGIC KHỞI TẠO PIR
         self.pir_sensor = None
@@ -151,11 +149,10 @@ class RecognitionSystem:
         Trả về: (danh sách khuôn mặt, danh sách mã QR)
         """
         all_faces_info = []
-        qr_codes_info = []
 
         if self.mtcnn is None or self.train_data is None:
             logging.warning("MTCNN hoặc train_data chưa được khởi tạo.")
-            return all_faces_info, qr_codes_info
+            return all_faces_info, []
 
         # 1. Phát hiện khuôn mặt bằng MTCNN
         image_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
@@ -172,22 +169,17 @@ class RecognitionSystem:
                 w, h = x2 - x1, y2 - y1
                 # Bỏ qua box có tọa độ âm hoặc vượt quá biên ảnh
                 if x1 < 0 or y1 < 0 or x2 > img_w or y2 > img_h:
-                    # logging.info(f"Face {idx}: BỎ QUA vì box ngoài biên ảnh (x1={x1}, y1={y1}, x2={x2}, y2={y2}, img_w={img_w}, img_h={img_h})")
                     continue
                 # Bỏ qua box quá nhỏ
                 if w < 60 or h < 60:
-                    # logging.info(f"Face {idx}: BỎ QUA vì box quá nhỏ (w={w}, h={h})")
                     continue
                 if w < self.MIN_FACE_SIZE or h < self.MIN_FACE_SIZE:
-                    # logging.info(f"Face {idx}: BỎ QUA vì quá nhỏ (w={w}, h={h})")
                     continue
                 facial_area = {'x': x1, 'y': y1, 'w': w, 'h': h}
                 # 2. Chống giả mạo (Anti-spoofing)
                 is_real, antispoof_score = self.fasnet.analyze(frame, (x1, y1, w, h))
-                # logging.info(f"Face {idx}: Anti-spoofing: is_real={is_real}, score={antispoof_score}")
                 if not is_real or antispoof_score < self.ANTISPOOF_THRESHOLD:
                     all_faces_info.append({'name': 'Fake', 'facial_area': facial_area, 'confidence': antispoof_score})
-                    # logging.info(f"Face {idx}: Phát hiện khuôn mặt giả hoặc score thấp.")
                     continue
                 # 3. Nhận diện khuôn mặt thật
                 face_img = self.preprocess_face(frame, (x1, y1, w, h))
@@ -201,7 +193,6 @@ class RecognitionSystem:
                 similarities = cosine_similarity([embedding], self.train_data['embeddings'])[0]
                 best_match_index = np.argmax(similarities)
                 confidence = similarities[best_match_index]
-                # logging.info(f"Face {idx}: Nhận diện - best_match_index={best_match_index}, confidence={confidence}")
                 if confidence >= self.FACE_RECOGNITION_THRESHOLD:
                     predicted_label = self.train_data['labels'][best_match_index]
                     name = str(predicted_label)
@@ -220,22 +211,14 @@ class RecognitionSystem:
                         pass
                     all_faces_info.append({'name': name, 'facial_area': facial_area, 'confidence': confidence})
                 else:
-                    # logging.info(f"Face {idx}: Không nhận diện được (Unknown), confidence={confidence}")
                     all_faces_info.append({'name': 'Unknown', 'facial_area': facial_area, 'confidence': confidence})
-        else:
-            # logging.info("MTCNN không phát hiện khuôn mặt nào.")
-            pass
-
         # 5. Phát hiện mã QR
         try:
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
             detected_qrs = pyzbar.decode(gray)
-            # logging.info(f"DEBUG: Số lượng QR phát hiện: {len(detected_qrs)}")
             for qr in detected_qrs:
                 qr_data = qr.data.decode('utf-8')
                 if qr_data not in self.known_qr_codes:
-                    # logging.info(f"DEBUG: Phát hiện QR mới: {qr_data}")
-                    # Gửi callback về GUI để xác nhận lưu ảnh trước khi lưu QR
                     if self.attendance_callback:
                         self.attendance_callback({
                             'type': 'QR-CAPTURE-REQUEST',
@@ -245,7 +228,7 @@ class RecognitionSystem:
         except Exception as e:
             logging.error(f"Lỗi xử lý QR code: {e}")
 
-        return all_faces_info, qr_codes_info
+        return all_faces_info, []
 
     def save_qr_attendance(self, qr_data, confidence=1.0):
         is_duplicate = qr_data in self.known_qr_codes
@@ -280,8 +263,18 @@ class RecognitionSystem:
             face_img = img[y:y2, x:x2]
             if face_img.size == 0: return None
             face_img = cv2.cvtColor(face_img, cv2.COLOR_BGR2RGB)
-            face_img = cv2.resize(face_img, target_size)
-            return face_img
+            # Resize giữ tỉ lệ, thêm padding đen để thành hình vuông
+            h, w = face_img.shape[:2]
+            target_w, target_h = target_size
+            scale = min(target_w / w, target_h / h)
+            new_w, new_h = int(w * scale), int(h * scale)
+            resized = cv2.resize(face_img, (new_w, new_h), interpolation=cv2.INTER_AREA)
+            # Tạo ảnh nền đen
+            result = np.zeros((target_h, target_w, 3), dtype=np.uint8)
+            y_offset = (target_h - new_h) // 2
+            x_offset = (target_w - new_w) // 2
+            result[y_offset:y_offset+new_h, x_offset:x_offset+new_w] = resized
+            return result
         except Exception as e:
             logging.error(f"Lỗi tiền xử lý khuôn mặt: {e}")
             return None
@@ -302,7 +295,12 @@ class RecognitionSystem:
             return None
 
     def log_attendance(self, name, confidence, mode, is_duplicate=False):
-        record = (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), name, confidence, mode)
+        # Định dạng confidence thành phần trăm
+        try:
+            confidence_str = f"{float(confidence)*100:.1f} %"
+        except Exception:
+            confidence_str = str(confidence)
+        record = (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), name, mode, confidence_str)
         if not is_duplicate and self.sheet:
             try:
                 self.sheet.append_row(list(record))
@@ -376,7 +374,7 @@ class RecognitionSystem:
                 last_check_time = time.time()
                 
                 # 3. Phát hiện và nhận diện
-                faces, qrs = self.detect_and_recognize(frame)
+                faces, _ = self.detect_and_recognize(frame)
 
                 # 4. Vẽ lên frame để hiển thị
                 for face in faces:
@@ -389,10 +387,6 @@ class RecognitionSystem:
                     
                     cv2.rectangle(frame, (x, y), (x + w, y + h), color, 2)
                     cv2.putText(frame, f"{name} ({conf:.2f})", (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
-
-                for qr in qrs:
-                    (x, y, w, h) = qr['rect']
-                    cv2.rectangle(frame, (x, y), (x + w, y + h), (255, 0, 0), 2)
 
                 # 5. Gửi frame đã xử lý cho GUI
                 try:
@@ -604,19 +598,22 @@ class Fasnet:
 
     def crop(self, org_img, bbox, scale, out_w, out_h):
         src_h, src_w, _ = np.shape(org_img)
-        left, top, right, bottom = self._get_new_box(src_w, src_h, bbox, scale)
-        
-        # Sử dụng slicing giống với script gốc để đảm bảo tính nhất quán
-        img = org_img[top : bottom + 1, left : right + 1]
-        
+        left_top_x, left_top_y, right_bottom_x, right_bottom_y = self._get_new_box(src_w, src_h, bbox, scale)
+        img = org_img[left_top_y:right_bottom_y + 1, left_top_x:right_bottom_x + 1]
         try:
-            # Resize ảnh đã crop
-            resized_img = cv2.resize(img, (out_w, out_h))
-            return resized_img
-        except cv2.error as e:
-            # Nếu có lỗi (ví dụ: img rỗng do crop sai), ghi log và trả về ảnh resize từ ảnh gốc
-            logging.error(f"Lỗi crop và resize ảnh anti-spoofing: {e}. Kích thước crop: {img.shape}")
-            return cv2.resize(org_img, (out_w, out_h))
+            h, w = img.shape[:2]
+            # Resize giữ tỉ lệ, cạnh lớn hơn sẽ bị cắt
+            scale = max(out_w / w, out_h / h)
+            new_w, new_h = int(w * scale), int(h * scale)
+            img_resized = cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_AREA)
+            # Crop chính giữa để thành hình vuông
+            start_x = (new_w - out_w) // 2 if new_w > out_w else 0
+            start_y = (new_h - out_h) // 2 if new_h > out_h else 0
+            img_cropped = img_resized[start_y:start_y+out_h, start_x:start_x+out_w]
+            return img_cropped
+        except Exception as e:
+            logging.error(f"Lỗi resize/crop ảnh: {str(e)}")
+            return org_img
 
 if __name__ == '__main__':
     rec_system = RecognitionSystem()

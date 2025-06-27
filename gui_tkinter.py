@@ -1,6 +1,6 @@
 import tkinter as tk
 from tkinter import ttk, messagebox, scrolledtext, font
-from PIL import Image, ImageTk, ImageOps
+from PIL import Image, ImageTk
 import cv2
 import threading
 import subprocess
@@ -199,27 +199,30 @@ class AttendanceDataFrame(tk.Frame):
             'type': 'Type', 'confidence': 'Confidence'
         }
         df = df.rename(columns=lambda c: column_mapping.get(c, c))
-        if 'Confidence' in df.columns:
-            df.drop(columns=['Confidence'], inplace=True, errors='ignore')
-        df.fillna('', inplace=True)
-        required_cols = ['Timestamp', 'Data', 'Type']
+        required_cols = ['Timestamp', 'Data', 'Type', 'Confidence']
         for col in required_cols:
             if col not in df.columns:
                 df[col] = ''
         df = df[required_cols]
         self.attendance_display.config(state="normal")
         self.attendance_display.delete("1.0", tk.END)
-        header_ts_width = 22
-        header_data_width = 42
-        header_type_width = 6
-        header = f"{'Ngày/giờ':<{header_ts_width}} {'Thông tin':<{header_data_width}} {'Loại':<{header_type_width}}\n"
+        header = "Ngày/giờ                              Thông tin                                                   Loại                 Độ tin cậy\n"
         self.attendance_display.insert(tk.END, header, 'bold_header')
-        data_col_width = header_data_width
-        timestamp_padding = " " * header_ts_width
+        self.attendance_display.insert(tk.END, "\n")  # Thêm dòng trống giữa header và dữ liệu
+        self.attendance_display.tag_configure('bold_header', font=("Arial", 16, "bold"))
+        data_col_width = 30
+        timestamp_padding = " " * 20
         for _, row in df.iterrows():
             timestamp = str(row.get('Timestamp', ''))
             data = str(row.get('Data', ''))
             record_type = str(row.get('Type', ''))
+            confidence = row.get('Confidence', '')
+            # Định dạng confidence thành phần trăm nếu là số
+            try:
+                conf_val = float(confidence)
+                confidence_str = f"{conf_val*100:.1f} %"
+            except Exception:
+                confidence_str = str(confidence)
             original_lines = data.splitlines()
             all_display_lines = []
             for line in original_lines:
@@ -231,12 +234,12 @@ class AttendanceDataFrame(tk.Frame):
             if not all_display_lines:
                 all_display_lines = ['']
             first_display_line = all_display_lines[0]
-            line_to_print = f"{timestamp:<{header_ts_width}.{header_ts_width}} {first_display_line:<{data_col_width}.{data_col_width}} {record_type:<{header_type_width}.{header_type_width}}\n"
+            line_to_print = f"{timestamp:<20} {first_display_line:<30} {record_type:<10} {confidence_str:<10}\n"
             self.attendance_display.insert(tk.END, line_to_print)
             if len(all_display_lines) > 1:
                 for subsequent_line in all_display_lines[1:]:
-                    padding_end = " " * (header_type_width + 1)
-                    indented_line = f"{timestamp_padding} {subsequent_line:<{data_col_width}.{data_col_width}}{padding_end}\n"
+                    padding_end = " " * (10 + 10 + 2)
+                    indented_line = f"{timestamp_padding} {subsequent_line:<30}{padding_end}\n"
                     self.attendance_display.insert(tk.END, indented_line)
         self.attendance_display.config(state="disabled")
 
@@ -953,7 +956,6 @@ class RecognitionFrame(tk.Frame):
             else:
                 self.write_log_verbose(f"Đã nhận diện '{name}' trước đó, bỏ qua log chính.")
 
-        for qr in qr_codes: self.write_log(f"Phát hiện mã QR: {qr['data']}")
         return frame, new_names, new_faces_imgs
 
     def update_recognized_faces(self, new_names, new_faces_imgs):
@@ -967,7 +969,7 @@ class RecognitionFrame(tk.Frame):
                 confidence = face_data['confidence']
                 timestamp = datetime.now().strftime('%H:%M:%S')
                 self.recognized_faces.insert(0, {
-                    'img': cv2.resize(original_img, (70, 70)),
+                    'img': cv2.resize(original_img, (90, 90)),
                     'name': name,
                     'timestamp': timestamp,
                     'confidence': confidence
@@ -981,21 +983,21 @@ class RecognitionFrame(tk.Frame):
             thumb_max_w = thumb_max_h = 90  # Thumbnail vuông 90x90
             for idx, photo in enumerate(self.recognized_faces):
                 face_frame = tk.Frame(self.faces_canvas, bg=DARK_PANEL, height=thumb_max_h)
-                self.faces_canvas.create_window(50, y_offset, window=face_frame, anchor='nw', width=350, height=thumb_max_h)
+                self.faces_canvas.create_window(50, y_offset, window=face_frame, anchor='nw', width=280, height=thumb_max_h)
                 # Resize trực tiếp về 90x90, không padding
                 img = photo['img']
                 img_resized = cv2.resize(img, (thumb_max_w, thumb_max_h), interpolation=cv2.INTER_AREA)
                 imgtk = ImageTk.PhotoImage(image=Image.fromarray(cv2.cvtColor(img_resized, cv2.COLOR_BGR2RGB)))
                 self.face_thumbs.append(imgtk)
                 img_label = tk.Label(face_frame, image=imgtk, bg=DARK_PANEL)
-                img_label.pack(side='left', padx=(0, 2), pady=2)
+                img_label.pack(side='left', padx=0, pady=2)
                 info_frame = tk.Frame(face_frame, bg=DARK_PANEL)
-                info_frame.pack(side='left', fill='y', expand=True, padx=2)
+                info_frame.pack(side='left', fill='y', expand=True, padx=0)
                 name_label = tk.Label(info_frame, text=photo['name'], font=('Arial', 15, 'bold'), fg=DARK_ACCENT, bg=DARK_PANEL, anchor='w')
                 name_label.pack(fill='x', pady=(0, 1))
                 time_label = tk.Label(info_frame, text=f"Thời gian: {photo['timestamp']}", font=('Arial', 13), fg=DARK_TEXT, bg=DARK_PANEL, anchor='w')
                 time_label.pack(fill='x', pady=(0, 0))
-                conf_label = tk.Label(info_frame, text=f"Độ tin cậy: {photo['confidence']:.2f}", font=('Arial', 13), fg=DARK_TEXT, bg=DARK_PANEL, anchor='w')
+                conf_label = tk.Label(info_frame, text=f"Độ tin cậy: {photo['confidence']*100:.2f} %", font=('Arial', 13), fg=DARK_TEXT, bg=DARK_PANEL, anchor='w')
                 conf_label.pack(fill='x')
                 callback = lambda e, n=photo['name'], i=self.original_faces[photo['name']]: self.show_enlarged_face(n, i)
                 self.bind_all_children(face_frame, "<Button-1>", callback)
@@ -1104,7 +1106,6 @@ class DataEntryFrame(tk.Frame):
         self.captured_image_thumbs = []
         self.pending_images = [] # Lưu ảnh tạm thời
         self.frame_queue = queue.Queue(maxsize=2)
-        self. _image_ref = None
         self.progress_var = tk.IntVar(value=0)
         # Đảm bảo progress bar/label là con của controls_frame
         self.progress_bar = ttk.Progressbar(self, orient='horizontal', length=320, mode='determinate', variable=self.progress_var, maximum=100)
@@ -1235,7 +1236,6 @@ class DataEntryFrame(tk.Frame):
             img_pil = Image.fromarray(img)
             imgtk = ImageTk.PhotoImage(image=img_pil)
             
-            self._image_ref = imgtk
             self.video_label.config(image=imgtk)
         except queue.Empty:
             pass

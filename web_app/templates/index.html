@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="Hệ thống nhận diện gương mặt và điểm danh bằng QR Code">
+    <meta name="author" content="Your Name/Organization">
+    <title>Hệ thống Điểm danh</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:ital,wght@0,200;0,400;0,700;1,200&family=Unbounded:wght@400;700&display=swap" rel="stylesheet">
+    <link href="{{ url_for('static', filename='css/bootstrap.min.css') }}" rel="stylesheet">
+    <link href="{{ url_for('static', filename='css/bootstrap-icons.css') }}" rel="stylesheet">
+    <link href="{{ url_for('static', filename='css/tooplate-kool-form-pack.css') }}" rel="stylesheet">
+</head>
+<body>
+    <main>
+        <header class="site-header">
+            <div class="container">
+                <div class="row justify-content-between">
+                    <div class="col-lg-12 col-12 d-flex">
+                        <a class="site-header-text d-flex justify-content-center align-items-center me-auto" href="{{ url_for('index') }}">
+                            <i class="bi-box"></i>
+                            <span>
+                                Hệ thống Điểm danh
+                            </span>
+                        </a>
+                        <div>
+                            <a href="#" class="custom-btn custom-border-btn btn" data-bs-toggle="modal" data-bs-target="#infoModal">Thông tin
+                                <i class="bi-arrow-right ms-2"></i>
+                            </a>
+                        </div>
+                        <a class="bi-list offcanvas-icon" data-bs-toggle="offcanvas" href="#offcanvasMenu" role="button" aria-controls="offcanvasMenu"></a>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <div class="offcanvas offcanvas-end" data-bs-scroll="true" tabindex="-1" id="offcanvasMenu" aria-labelledby="offcanvasMenuLabel">
+            <div class="offcanvas-header">
+                <button type="button" class="btn-close ms-auto" data-bs-dismiss="offcanvas" aria-label="Close"></button>
+            </div>
+
+            <div class="offcanvas-body d-flex flex-column justify-content-center align-items-center">
+                <nav>
+                    <ul>
+                        <li><a href="{{ url_for('index') }}">Giới thiệu</a></li>
+                        <li>
+                            <a href="#">Nhân viên</a>
+                            <ul>
+                                <li><a href="{{ url_for('face_data') }}">Dữ liệu điểm danh</a></li>
+                                <li><a href="{{ url_for('train_face_page') }}">Nhập dữ liệu nhận diện</a></li>
+                            </ul>
+                        </li>
+
+                        <li>
+                            <a href="{{ url_for('guest_register') }}">Khách mời</a>
+                            <ul>
+                                <li><a href="{{ url_for('guest_register') }}">Đăng ký tham dự</a></li>
+                            </ul>
+                        </li>
+                        <li><a href="{{ url_for('contact') }}">Liên hệ</a></li>
+                    </ul>
+                </nav>
+            </div>
+        </div>
+
+        <div class="modal fade" id="infoModal" tabindex="-1" aria-labelledby="infoModalLabel" aria-hidden="true">
+            <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h2 class="modal-title fw-bold text-white" style="font-size: 48px;" id="infoModalLabel">Thông tin đề tài</h2>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body text-white !important">
+                        <p><strong>Đề tài: Hệ thống nhận diện gương mặt và điểm danh bằng QR Code</strong></p>
+                        <p>Hệ thống này được xây dựng với mục tiêu tự động hóa quá trình điểm danh cho nhân viên và khách mời, tăng cường tính chính xác và hiệu quả.</p>
+                        <p><strong>Chức năng chính:</strong></p>
+                        <ul>
+                            <li><strong>Nhận diện gương mặt nhân viên:</strong> Hệ thống sẽ được huấn luyện bằng các hình ảnh gương mặt của nhân viên. Khi camera hoạt động, nó sẽ nhận diện khuôn mặt và ghi lại thời gian điểm danh.</li>
+                            <li><strong>Điểm danh bằng QR Code cho khách mời:</strong> Khách mời có thể đăng ký thông tin và nhận mã QR. Khi quét mã QR qua camera, thông tin điểm danh của khách sẽ được ghi lại.</li>
+                            <li><strong>Lưu trữ dữ liệu điểm danh:</strong> Tất cả dữ liệu điểm danh (cả nhân viên và khách mời) sẽ được lưu trữ trên Google Sheets thông qua Google Sheets API.</li>
+                            <li><strong>Hiển thị dữ liệu trên Website:</strong> Trang web sẽ có các mục riêng biệt cho nhân viên (hiển thị dữ liệu điểm danh) và khách mời (đăng ký và tạo mã QR).</li>
+                        </ul>
+                        <p>Đây là trang chủ giới thiệu tổng quan về đề tài.</p>
+                    </div>
+                    <div class="modal-footer justify-content-center">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Đóng</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <section class="hero-section d-flex justify-content-center align-items-center">
+            <div class="container">
+                <div class="row">
+                    <div class="col-lg-8 col-12 mx-auto text-center">
+                        <h1 class="text-white mb-4">Chào mừng đến với hệ thống điểm danh bằng khuôn mặt!</h1>
+                        <p class="text-white">Một giải pháp hiện đại cho việc quản lý điểm danh nhân viên và khách mời.</p>
+                        <div class="mt-5">
+                            <a href="{{ url_for('face_data') }}" class="btn custom-btn smoothscroll me-2">Nhân viên</a>
+                            <a href="{{ url_for('guest_register') }}" class="btn custom-btn smoothscroll">Khách mời</a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="video-wrap">
+                <video autoplay loop muted class="custom-video" poster="">
+                    <source src="{{ url_for('static', filename='videos/video.mp4') }}" type="video/mp4">
+                    Your browser does not support the video tag.
+                </video>
+            </div>
+        </section>
+    </main>
+
+    <script src="{{ url_for('static', filename='js/jquery.min.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/bootstrap.bundle.min.js') }}"></script>
+</body>
+</html>

@@ -1,0 +1,717 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="">
+    <meta name="author" content="">
+    <title>Nhập dữ liệu gương mặt</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:ital,wght@0,200;0,400;0,700;1,200&family=Unbounded:wght@400;700&display=swap" rel="stylesheet">
+    <link href="{{ url_for('static', filename='css/bootstrap.min.css') }}" rel="stylesheet">
+    <link href="{{ url_for('static', filename='css/bootstrap-icons.css') }}" rel="stylesheet">
+    <link href="{{ url_for('static', filename='css/tooplate-kool-form-pack.css') }}" rel="stylesheet">
+    <style>
+        body{
+            font-size: 22px;
+        }
+        .site-header {
+            max-width: 1320px;
+            margin: 0 auto; 
+        }
+        .container {
+            max-width: 100%; 
+            margin: 0 auto;
+            padding: 0 15px;
+            width: 100%;
+        }
+        .main-container {
+            max-width: 1450px; /* Giá trị đề xuất */
+            display: flex; /* Dùng flex để chia cột trái/phải */
+            flex-wrap: wrap; /* Cho phép xuống dòng trên mobile */
+            justify-content: space-between;
+            gap: 50px;
+        }
+        .preview-section {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .webcam-section {
+            width: 100%;
+            max-width: 360px;
+            max-height: 480px;
+            margin: 0 auto;
+            position: relative;
+            overflow: visible;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        #webcam-container {
+            width: 100%;
+            height: 0;
+            padding-bottom: 133.33%; /* Tỷ lệ 4:3 = 133.33% */
+            max-height: 360px; /* Giới hạn chiều cao tối đa */
+            position: relative;
+            overflow: hidden;
+            border-radius: var(--border-radius-small);
+            background-color: #000;
+            margin-bottom: 5px;
+        }
+        #videoElement {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            border-radius: var(--border-radius-small);
+            transform: scaleX(-1); /* Lật ngang video */
+            position: absolute;
+        }
+        .controls-container {
+            margin-top: 10px;
+            display: flex;
+            align-items: center;
+            border: 1px solid var(--custom-btn-bg-color);
+            border-radius: var(--border-radius-large);
+            padding: 8px 15px;
+            background-color: var(--custom-btn-bg-color);
+            color: var(--white-color);
+            height: 50px;
+        }
+        .controls-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            justify-content: flex-start;
+            width: 100%;
+            position: relative;
+        }
+
+        #controls-container {
+            display: flex;
+            align-items: center;
+            border: 1px solid var(--custom-btn-bg-color);
+            border-radius: var(--border-radius-large);
+            padding: 8px 15px;
+            background-color: var(--custom-btn-bg-color);
+            color: var(--white-color);
+        }
+
+        #controls-container label {
+            margin-bottom: 0px;
+            align-items: center;
+            color: var(--white-color);
+        }
+
+        #personName {
+            font-size: 22px;
+            color: var(--white-color);
+            align-items: center;
+            text-align: center;
+        }
+
+        #startButton, #saveButton {
+            padding: 8px 15px;
+            font-size: 22px;
+        }
+
+        #startButton:hover, #saveButton:hover {
+            background-color: var(--custom-btn-hover-bg-color);
+            transform: translateY(-2px);
+        }
+
+        #saveButton {
+            display: none;
+        }
+
+        /* Sửa lại phần progress bar */
+        #progress-container {
+            width: 100%;
+            height: 50px;
+            background-color: #f0f0f0;
+            border-radius: 15px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        #progress-bar {
+            height: 100%;
+            background-color: #4CAF50;
+            width: 0%;
+            max-width: 100%;
+            position: absolute;
+            left: 0;
+            top: 0;
+            transition: width 0.3s ease;
+        }
+
+        #progress-value {
+            font-size: large;
+            position: absolute;
+            width: 100%;
+            height: 100%; 
+            text-align: right;
+            line-height: 50px;
+            color: black;
+            text-shadow: 1px 1px 1px rgba(0,0,0,0.5);
+            padding-right: 10px; 
+            box-sizing: border-box; 
+        }
+
+        #captured-images-preview {
+            display: grid;
+            flex-wrap: wrap;
+            grid-template-columns: repeat(5, 1fr); /* Chia thành 5 cột bằng nhau */
+            border-radius: var(--border-radius-large);
+            padding: 10px; /* Thêm padding để trông đẹp hơn */
+            gap: 10px;
+        }
+
+        .smaller-preview {
+            min-height: 200px;
+            width: 100%; /* Chiếm toàn bộ chiều rộng của ô grid */
+            grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); /* Linh hoạt số cột */
+            object-fit: cover;
+            border: 2px solid var(--border-color);
+            border-radius: var(--border-radius-small);
+            box-shadow: var(--box-shadow);
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .smaller-preview:hover {
+            transform: scale(1.05);
+            box-shadow: var(--box-shadow-hover);
+        }
+
+        .messages-container {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+            position: relative;
+            z-index: 5;
+            width: 100%;
+        }
+
+        .error-message, #message, #save-success-message {
+            font-weight: bold;
+            padding: 8px 12px;
+            border-radius: var(--border-radius-small);
+            width: 100%;
+            margin: 0;
+        }
+        #post-save-info {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin-top: 20px;
+            width: 100%;
+}
+        .error-message {
+            color: var(--error-color);
+            background-color: var(--error-bg-color);
+        }
+
+        #message {
+                color: var(--info-color);
+            background-color: var(--info-bg-color);
+        }
+        #save-success-message {
+            align-items: center;
+            font-size: 30px;
+            font-weight: bold;
+            color: var(--success-color);
+            background-color: var(--success-bg-color);
+            padding: 10px 20px;
+            border-radius: var(--border-radius-small);
+            width:auto;
+        }
+        
+        #enlarged-image-container {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.9);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 9999;
+            cursor: pointer;
+        }
+
+        #enlarged-image {
+            max-width: 900px;
+            max-height: 80vh;
+            object-fit: contain;
+            border: 5px solid var(--white-color);
+            border-radius: var(--border-radius-large);
+            box-shadow: 0 0 30px rgba(0,0,0,0.8);
+        }
+
+    /* Điều chỉnh cho màn hình nhỏ */
+    @media (max-width: 932px) {
+        .container {
+            max-width: 100%; 
+            padding: 0 10px;
+         }
+        #enlarged-image {
+            max-width: 200px;
+            max-height: auto;
+            object-fit: contain;
+            border: 5px solid var(--white-color);
+            border-radius: var(--border-radius-large);
+            box-shadow: 0 0 30px rgba(0,0,0,0.8);}
+        
+        .site-header {
+            max-width: 100%; 
+            padding: 10px 0;
+        }
+       .site-header-text {
+            font-size: 15px;
+        }
+        #captured-images-preview{
+            grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+        }
+        .main-container {
+            gap: 0px;
+            flex-direction: column;
+            align-items: center; /* Căn giữa các phần tử */
+        }
+
+        .webcam-section {
+            width: 100%;
+            max-width: 200px;
+            margin: 0 auto;
+            position: relative;
+            padding: 10px;
+        }
+
+        #webcam-container {
+            width: 100%;
+            position: relative;
+            padding-top: 75%;
+            overflow: hidden;
+            border-radius: var(--border-radius-small);
+            background-color: #000;
+        }
+
+        #videoElement {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            -webkit-transform: scaleX(-1); /* Lật ngang video cho iOS */
+            transform: scaleX(-1);
+        }
+
+        .preview-section {
+            grid-template-columns: repeat(2, 1fr);
+            width: 100%;
+            margin-top: 20px;
+        }
+
+        .preview-wrapper {
+            max-height: 400px;
+        }
+        #startButton, #saveButton {
+            font-size: 15px;
+            padding: 8px 20px;
+            width: auto; 
+        }
+        .preview-wrapper::-webkit-scrollbar {
+            width: 0;
+            background: transparent;
+        }
+        .smaller-preview {
+            min-height: 150px;
+        }
+
+        #controls-container {
+            padding: 5px 10px;
+            width: auto; /* Cho phép container tự điều chỉnh chiều rộng */
+            margin: 5px; /* Thêm margin */
+        }
+
+        #personName {
+            font-size: 16px;
+            padding: 5px;
+            width: auto; /* Cho phép input tự điều chỉnh chiều rộng */
+        }
+
+        .controls-row {
+            flex-wrap: wrap; /* Cho phép các phần tử xuống dòng nếu cần */
+            justify-content: center; /* Căn giữa các phần tử */
+            gap: 5px; /* Thêm khoảng cách giữa các phần tử */
+        }
+    }
+
+    </style>
+</head>
+<body>
+    <main>
+        <header class="site-header">
+            <div class="container">
+                <div class="row justify-content-between">
+                    <div class="col-lg-12 col-12 d-flex">
+                        <a class="site-header-text d-flex justify-content-center align-items-center me-auto" href="{{ url_for('train_face_page') }}">
+                            <i class="bi-box"></i>
+                            <span>
+                                Nhập dữ liệu gương mặt</span>
+                        </a>
+                        <div>
+                            <a href="#" class="custom-btn custom-border-btn btn" data-bs-toggle="modal" data-bs-target="#infoModal">Thông tin
+                                <i class="bi-arrow-right ms-2"></i>
+                            </a>
+                        </div>
+    
+                        <a class="bi-list offcanvas-icon" data-bs-toggle="offcanvas" href="#offcanvasMenu" role="button" aria-controls="offcanvasMenu"></a>
+                    </div>
+                </div>
+            </div>
+        </header>
+        <div class="offcanvas offcanvas-end" data-bs-scroll="true" tabindex="-1" id="offcanvasMenu" aria-labelledby="offcanvasMenuLabel">
+            <div class="offcanvas-header">
+                <button type="button" class="btn-close ms-auto" data-bs-dismiss="offcanvas" aria-label="Close"></button>
+            </div>
+    
+            <div class="offcanvas-body d-flex flex-column justify-content-center align-items-center">
+                <nav>
+                    <ul>
+                         <li><a href="{{ url_for('index') }}">Giới thiệu</a></li>
+                        <li>
+                            <a href="#">Nhân viên</a>
+                            <ul>
+                                <li><a href="{{ url_for('face_data') }}">Dữ liệu điểm danh</a></li>
+                                <li><a href="{{ url_for('train_face_page') }}">Nhập dữ liệu nhận diện</a></li>
+                            </ul>
+                        </li>
+                        <li>
+                            <a href="#">Khách mời</a>
+                            <ul>
+                                <li><a href="{{ url_for('guest_register') }}">Tạo mã QR</a></li>
+                            </ul>
+                        </li>
+                        <li><a href="{{ url_for('contact') }}">Liên hệ</a></li>
+                        <li><a href="{{ url_for('logout') }}">Đăng xuất</a></li>
+                    </ul>
+                </nav>
+            </div>
+        </div>
+    
+        <div class="modal fade" id="infoModal" tabindex="-1" aria-labelledby="infoModalLabel" aria-hidden="true">
+            <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
+                <div class="modal-content bg-dark">
+                    <div class="modal-header">
+                        <h2 class="modal-title fw-bold text-white" style="font-size: 32px;" id="infoModalLabel">Dữ liệu khuôn mặt</h2>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body text-white">
+                        <p>Chào mừng bạn đến với trang nhập dữ liệu gương mặt! Trang này được thiết kế để bạn có thể thêm hình ảnh gương mặt của nhân viên vào hệ thống. Dữ liệu này sẽ được sử dụng để huấn luyện mô hình nhận diện, giúp hệ thống có thể tự động xác định và điểm danh nhân viên một cách chính xác.</p>
+                        <p>Để đảm bảo hiệu quả nhận diện tốt nhất, vui lòng tải lên các hình ảnh rõ ràng, chính diện và có đủ ánh sáng. Bạn có thể tải lên nhiều hình ảnh cho mỗi nhân viên để tăng cường độ chính xác của mô hình.</p>
+                        <p>Hãy làm theo hướng dẫn trên trang để tải lên hình ảnh và liên kết chúng với thông tin nhân viên tương ứng. Dữ liệu bạn cung cấp sẽ góp phần quan trọng vào hoạt động ổn định và hiệu quả của hệ thống điểm danh tự động.</p>
+                    </div>
+                    <div class="modal-footer justify-content-center">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Đóng</button>
+                    </div>
+                </div>                
+            </div>
+        </div>
+        <div class="main-wrapper" style="background-image: url('/static/images/face_recognition.jpg'); background-size:cover; background-position: center;">
+            <section class="hero-section d-flex ">
+            <div class="container">
+                <div class="main-container">
+                    <div class="webcam-section">
+                        <div id="webcam-container">
+                            <video id="videoElement" autoplay></video>
+                        </div>
+                        <canvas id="captureCanvas" style="display:none;"></canvas>
+
+                        <div class="controls-row">
+                            <div id="controls-container">
+                                <label for="personName" class="form-label me-2 fw-bold">Tên:</label>
+                                <input type="text" id="personName" class="form-control">
+                            </div>
+                            <button id="startButton" class="btn custom-btn">Chụp</button>
+                            <button id="saveButton" class="btn custom-btn">Lưu</button>
+                        </div>
+
+                        <div class="messages-container">
+                            <div id="name-error" class="error-message"></div>
+                            <div id="message"></div>
+                        </div>
+                    </div>
+
+                    <div class="preview-section">
+                        <div id="progress-container">
+                            <div id="progress-bar"><span id="progress-value">0%</span></div>
+                        </div>
+                        <div id="captured-images-preview"></div>
+                    </div>
+                </div>
+
+                <div id="post-save-info" class="mt-4 text-center" style="display: none;">
+                    <div id="save-success-message"></div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <script src="{{ url_for('static', filename='js/jquery.min.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/bootstrap.bundle.min.js') }}"></script>
+    <script>
+        const video = document.getElementById('videoElement');
+        const captureCanvas = document.getElementById('captureCanvas');
+        const captureContext = captureCanvas.getContext('2d');
+        const capturedImagesPreview = document.getElementById('captured-images-preview');
+        const startButton = document.getElementById('startButton');
+        const saveButton = document.getElementById('saveButton');
+        const personNameInput = document.getElementById('personName');
+        const messageDiv = document.getElementById('message');
+        const progressBar = document.getElementById('progress-bar');
+        const progressValue = document.getElementById('progress-value');
+        const nameErrorDiv = document.getElementById('name-error');
+        const webcamContainer = document.getElementById('webcam-container');
+        const controls = document.getElementById('controls-container');
+        const numCaptures = 10;
+        const captureInterval = 500;
+        let capturedImages = [];
+        let captureCount = 0;
+        let isCapturing = false;
+        let videoStream = null;
+
+        const enlargedImageContainer = document.createElement('div');
+        enlargedImageContainer.id = 'enlarged-image-container';
+        const enlargedImage = document.createElement('img');
+        enlargedImage.id = 'enlarged-image';
+        enlargedImageContainer.appendChild(enlargedImage);
+        document.body.appendChild(enlargedImageContainer);
+
+        const postSaveInfo = document.getElementById('post-save-info');
+        const saveSuccessMessage = document.getElementById('save-success-message');
+
+        // Kiểm tra thiết bị iOS
+        const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+
+        async function startWebcam() {
+            try {
+                const constraints = {
+                    video: {
+                        width: { ideal: 1280 },
+                        height: { ideal: 720 },
+                        facingMode: "user"
+                    }
+                };
+                
+                const stream = await navigator.mediaDevices.getUserMedia(constraints);
+                video.srcObject = stream;
+                videoStream = stream;
+
+                // Thêm playsinline cho iOS
+                video.setAttribute('playsinline', '');
+                video.setAttribute('webkit-playsinline', '');
+
+                // Đợi video load xong
+                await new Promise((resolve) => {
+                    video.onloadedmetadata = () => {
+                        // Đặt kích thước canvas theo tỷ lệ 3:4
+                        captureCanvas.width = 320;
+                        captureCanvas.height = 480;
+                        resolve();
+                    };
+                });
+
+                // Bắt đầu phát video
+                video.play().catch(err => {
+                    console.error("Lỗi khi phát video:", err);
+                    messageDiv.innerText = 'Không thể bật webcam. Vui lòng thử lại.';
+                });
+
+            } catch (error) {
+                console.error('Lỗi khi truy cập webcam:', error);
+                messageDiv.innerText = 'Không thể truy cập webcam. Vui lòng kiểm tra quyền truy cập camera.';
+                startButton.disabled = true;
+            }
+        }
+
+        // Thêm sự kiện để xử lý khi video bắt đầu phát
+        video.addEventListener('playing', () => {
+            messageDiv.style.display = 'none';
+        });
+
+        // Thêm sự kiện để xử lý khi video bị lỗi
+        video.addEventListener('error', (e) => {
+            console.error('Lỗi video:', e);
+            messageDiv.innerText = 'Có lỗi xảy ra với webcam. Vui lòng thử lại.';
+        });
+
+        // Gọi hàm startWebcam khi trang load xong
+        document.addEventListener('DOMContentLoaded', () => {
+            startWebcam();
+        });
+
+        startButton.addEventListener('click', () => {
+            if (!personNameInput.value.trim()) {
+                nameErrorDiv.innerText = 'Vui lòng nhập tên trước khi bắt đầu chụp.';
+                nameErrorDiv.style.display = 'block';
+                messageDiv.style.display = 'none';
+                return;
+            } else {
+                nameErrorDiv.innerText = '';
+                nameErrorDiv.style.display = 'none';
+                messageDiv.innerText = 'Đang chụp...';
+                messageDiv.style.display = 'block';
+            }
+
+            capturedImages = [];
+            captureCount = 0;
+            isCapturing = true;
+            startButton.style.display = 'none';
+            saveButton.style.display = 'none';
+            capturedImagesPreview.innerHTML = '';
+            progressBar.style.width = '0%';
+            progressValue.innerText = '0%';
+            progressBar.style.display = 'block';
+
+            captureIntervalFunction();
+        });
+
+        function captureIntervalFunction() {
+            if (!isCapturing) return;
+
+            // Lấy kích thước video gốc
+            const sourceWidth = video.videoWidth;
+            const sourceHeight = video.videoHeight;
+
+            // Tính toán kích thước cắt dựa trên tỷ lệ 3:4
+            // Để tối ưu hóa diện tích hiển thị, lấy chiều cao tối đa có thể
+            // và tính toán chiều rộng tương ứng
+            let cropHeight = sourceHeight;
+            let cropWidth = cropHeight * 3/4; // Tỷ lệ 3:4 (width:height)
+            
+            // Nếu cropWidth lớn hơn sourceWidth, thì điều chỉnh lại
+            if (cropWidth > sourceWidth) {
+                cropWidth = sourceWidth;
+                cropHeight = cropWidth * 4/3; // Điều chỉnh chiều cao tương ứng
+            }
+
+            // Tính toán vị trí cắt từ chính giữa
+            const sourceX = (sourceWidth / 2) - (cropWidth / 2);
+            const sourceY = 0;
+
+            // Đặt kích thước canvas theo tỷ lệ 3:4
+            captureCanvas.width = 360;
+            captureCanvas.height = 480;
+
+            // Vẽ hình ảnh đã cắt vào canvas
+            captureContext.drawImage(
+                video,
+                sourceX, sourceY, cropWidth, cropHeight,
+                0, 0, 360, 480
+            );
+
+            const imageDataURL = captureCanvas.toDataURL('image/jpeg');
+            capturedImages.push(imageDataURL);
+
+            const img = document.createElement('img');
+            img.src = imageDataURL;
+            img.id = 'capturedImage_' + captureCount;
+            img.classList.add('smaller-preview');
+            img.addEventListener('click', () => {
+                enlargedImage.src = imageDataURL;
+                enlargedImageContainer.style.display = 'flex';
+            });
+            capturedImagesPreview.appendChild(img);
+
+            captureCount++;
+            const progress = (captureCount / numCaptures) * 100;
+            progressBar.style.width = progress + '%';
+            progressValue.innerText = Math.round(progress) + '%';
+
+            if (captureCount < numCaptures) {
+                setTimeout(captureIntervalFunction, captureInterval);
+            } else {
+                isCapturing = false;
+                messageDiv.innerHTML = 'Đã chụp xong.<br>Nhấn Lưu để tải hình ảnh lên.';
+                saveButton.style.display = 'inline-block';
+            }
+        }
+
+        saveButton.addEventListener('click', async () => {
+            const personName = personNameInput.value.trim();
+            if (!personNameInput.value.trim() || capturedImages.length === 0) {
+                messageDiv.innerHTML = 'Vui lòng nhập tên và chụp ảnh trước khi lưu.';
+                messageDiv.style.display = 'block';
+                return;
+            }
+
+            saveButton.disabled = true;
+            messageDiv.innerHTML = 'Đang lưu...<br>Vui lòng đợi';
+            messageDiv.style.display = 'block';
+            progressBar.style.width = '0%';
+            progressValue.innerText = 'Đang tải...';
+
+            try {
+                const response = await fetch('/save_face', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ name: personName, images: capturedImages })
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(`Lỗi server: ${errorData.error || response.statusText}`);
+                }
+
+                const data = await response.json();
+                if (data.success) {
+                    progressBar.style.width = '100%';
+                    progressValue.innerText = 'Thành công!';
+                    messageDiv.style.display = 'none';
+                    
+                    // Ẩn toàn bộ webcam-section thay vì chỉ ẩn webcamContainer
+                    document.querySelector('.webcam-section').style.display = 'none';
+                    saveButton.style.display = 'none';
+
+                    saveSuccessMessage.innerText = 'Lưu hình ảnh thành công!';
+                    postSaveInfo.style.display = 'block';
+
+                    if (videoStream) {
+                        videoStream.getTracks().forEach(track => track.stop());
+                        video.srcObject = null;
+                        videoStream = null;
+                    }
+                } else {
+                    messageDiv.innerHTML = `Lỗi khi lưu thông tin:<br>${data.error || 'Không rõ nguyên nhân'}`;
+                    messageDiv.style.display = 'block';
+                    startButton.style.display = 'inline-block';
+                    saveButton.disabled = false;
+                    saveButton.style.display = 'inline-block';
+                }
+            } catch (error) {
+                console.error('Lỗi khi gửi dữ liệu lên server:', error);
+                messageDiv.innerHTML = `Lỗi khi gửi dữ liệu lên server:<br>${error.message}`;
+                messageDiv.style.display = 'block';
+                startButton.style.display = 'inline-block';
+                saveButton.disabled = false;
+                saveButton.style.display = 'inline-block';
+            }
+        });
+
+        enlargedImageContainer.addEventListener('click', (event) => {
+            if (event.target === enlargedImageContainer) {
+                enlargedImageContainer.style.display = 'none';
+            }
+        });
+    </script>
+   
+</body>
+</html>

@@ -1,0 +1,37 @@
+# Thoát khỏi môi trường ảo nếu đang active
+deactivate
+
+# Xóa thư mục môi trường ảo
+rm -rf .venv
+# Tạo môi trường ảo mới
+python3 -m venv .venv
+
+# Kích hoạt môi trường ảo
+source .venv/bin/activate
+# Cập nhật pip
+pip install --upgrade pip
+
+#cài đặt lại từ requirements.txt
+pip install -r requirements.txt
+
+#Tạo file requirements.txt để dễ dàng cài đặt lại
+pip freeze > requirements.txt
+
+# Kiểm tra các thư viện đã cài
+pip list
+
+# Kiểm tra phiên bản Python
+python --version
+
+
+Để khởi động lại service (và app.py), dùng lệnh:
+sudo systemctl restart webapp.service
+
+Nếu muốn dừng hoặc kiểm tra trạng thái:
+sudo systemctl stop webapp.service
+sudo systemctl status webapp.service
+
+Khởi động hệ thống
+cd /home/admin/Desktop/faceattendance
+source myenv/bin/activate
+python3 recog_thread.py

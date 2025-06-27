@@ -1,0 +1,111 @@
+/* attendance.css */
+
+/* Tùy chỉnh container của section dữ liệu */
+.hero-section .container {
+    background-color: rgba(255, 255, 255, 0.95); /* Nền trắng gần như trong suốt */
+    padding: 30px;
+    border-radius: 10px;
+    box-shadow: 0 8px 16px rgba(0, 0, 0, 0.08); /* Đổ bóng đậm hơn một chút */
+}
+
+/* Tùy chỉnh tiêu đề trang */
+.hero-section h2 {
+    color: #007bff; /* Màu xanh dương chủ đạo */
+    text-align: center;
+    margin-bottom: 30px;
+    font-size: 2.8em;
+    text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.15);
+}
+
+/* Tùy chỉnh bảng dữ liệu điểm danh */
+.custom-attendance-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 20px;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+    border-radius: 8px;
+    overflow: hidden;
+    border: 1px solid #dee2e6; /* Thêm viền cho bảng */
+    font-family: 'Poppins', Arial, sans-serif;
+    font-size: 1.25em; /* Tăng cỡ chữ toàn bảng */
+    color: #222; /* Tăng độ tương phản chữ */
+}
+
+/* Tùy chỉnh header của bảng */
+.custom-attendance-table thead.table-dark th {
+    background-color: #343a40;
+    color: white;
+    padding: 12px 15px;
+    text-align: left;
+    font-weight: 700; /* Đậm hơn */
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    border-bottom: 2px solid #454d55;
+    font-size: 1.15em; /* Tăng cỡ chữ header */
+}
+
+/* Tùy chỉnh các ô dữ liệu trong body */
+.custom-attendance-table tbody td {
+    padding: 10px 15px;
+    border-bottom: 1px solid #f8f9fa; /* Đường kẻ nhạt hơn */
+    font-size: 1.13em; /* Tăng cỡ chữ body */
+    font-weight: 500;
+    color: #222;
+}
+
+/* Màu nền khác cho các hàng chẵn để dễ đọc */
+.custom-attendance-table tbody tr:nth-child(even) {
+    background-color: #f8f9fa;
+}
+
+/* Hiệu ứng hover khi di chuột qua các hàng */
+.custom-attendance-table tbody tr:hover {
+    background-color: #e9ecef;
+    transition: background-color 0.2s ease-in-out;
+}
+
+/* Căn giữa nội dung của các ô (tùy chọn) */
+.custom-attendance-table td, .custom-attendance-table th {
+    vertical-align: middle; /* Căn giữa theo chiều dọc */
+}
+
+/* Đảm bảo font header bảng nổi bật hơn */
+.custom-attendance-table th {
+    font-family: 'Poppins', Arial, sans-serif;
+    font-weight: 700;
+    color: #111;
+}
+
+/* Tùy chỉnh thông báo khi không có dữ liệu */
+.hero-section p.text-center {
+    font-style: italic;
+    color: #6c757d;
+    margin-top: 20px;
+}
+
+.custom-attendance-table th:first-child,
+.custom-attendance-table td:first-child {
+    min-width: 140px; 
+    word-break: break-all;
+}
+
+@media (max-width: 600px) {
+    .custom-attendance-table {
+        font-size: 0.72em; /* Nhỏ hơn nữa */
+    }
+    .custom-attendance-table th,
+    .custom-attendance-table td {
+        white-space: wrap;
+    }
+    .table-responsive {
+        overflow-x: auto;
+    }
+    .custom-attendance-table th:first-child,
+    .custom-attendance-table td:first-child {
+        min-width: 108px;
+        width: 1%;
+        white-space: normal; /* Cho phép xuống dòng nếu quá dài */
+        word-break: break-all;
+        text-align: left;
+    }
+}

@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="">
+    <meta name="author" content="">
+    <title>Đăng ký tham dự</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:ital,wght@0,200;0,400;0,700;1,200&family=Unbounded:wght@400;700&display=swap" rel="stylesheet">
+    <link href="{{ url_for('static', filename='css/bootstrap.min.css') }}" rel="stylesheet">
+    <link href="{{ url_for('static', filename='css/bootstrap-icons.css') }}" rel="stylesheet">
+    <link href="{{ url_for('static', filename='css/tooplate-kool-form-pack.css') }}" rel="stylesheet">
+    <style>
+        #qrcode-container {
+            margin-top: 20px;
+            text-align: center;
+        }
+        #qrcode {
+            max-width: 300px;
+            height: auto;
+            margin-bottom: 10px;
+        }
+        #qrcode-title {
+            color: white;
+        }
+        .scrollable-container {
+            overflow-x: auto;
+        }
+        .hidden {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <main>
+        <header class="site-header">
+            <div class="container">
+                <div class="row justify-content-between">
+                    <div class="col-lg-12 col-12 d-flex">
+                        <a class="site-header-text d-flex justify-content-center align-items-center me-auto" href="{{ url_for('index') }}">
+                            <i class="bi-box"></i>
+                            <span>
+                                Đăng ký tham dự
+                            </span>
+                        </a>
+
+                        <div>
+                            <a href="#" class="custom-btn custom-border-btn btn" data-bs-toggle="modal" data-bs-target="#infoModal">Thông tin
+                                <i class="bi-arrow-right ms-2"></i>
+                            </a>
+                        </div>
+
+                        <a class="bi-list offcanvas-icon" data-bs-toggle="offcanvas" href="#offcanvasMenu" role="button" aria-controls="offcanvasMenu"></a>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <div class="offcanvas offcanvas-end" data-bs-scroll="true" tabindex="-1" id="offcanvasMenu" aria-labelledby="offcanvasMenuLabel">
+            <div class="offcanvas-header">
+                <button type="button" class="btn-close ms-auto" data-bs-dismiss="offcanvas" aria-label="Close"></button>
+            </div>
+
+            <div class="offcanvas-body d-flex flex-column justify-content-center align-items-center">
+                <nav>
+                    <ul>
+                        <li><a href="{{ url_for('index') }}">Giới thiệu</a></li>
+                        <li>
+                            <a href="#">Nhân viên</a>
+                            <ul>
+                                <li><a href="{{ url_for('face_data') }}">Dữ liệu điểm danh</a></li>
+                                <li><a href="{{ url_for('train_face_page') }}">Nhập dữ liệu nhận diện</a></li>
+                            </ul>
+                        </li>
+                        <li>
+                            <a class="active" href="#">Khách mời</a>
+                            <ul>
+                                <li><a href="{{ url_for('guest_register') }}">Tạo mã QR</a></li>
+                            </ul>
+                        </li>
+                        <li><a href="{{ url_for('contact') }}">Liên hệ</a></li>
+                    </ul>
+                </nav>
+            </div>
+        </div>
+
+        <div class="modal fade" id="infoModal" tabindex="-1" aria-labelledby="infoModalLabel" aria-hidden="true">
+            <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h2 class="modal-title fw-bold text-white" style="font-size: 48px;" id="infoModalLabel">Thông tin</h2>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body text-white">
+                        <p>Đây là trang nhập dữ liệu khuôn mặt phục vụ cho hệ thống nhận diện.</p>
+                        <p>Vui lòng sử dụng giao diện này để chụp và lưu dữ liệu khuôn mặt.</p>
+                        <p>Dữ liệu sẽ được dùng để điểm danh tự động bằng AI.</p>
+                    </div>
+                    <div class="modal-footer justify-content-center">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Đóng</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <section class="hero-section d-flex justify-content-center align-items-center scrollable-container">
+            <div class="container">
+                <div class="row">
+                    <div class="col-lg-8 col-12 mx-auto">
+                        <form id="guestForm" class="custom-form booking-form {% if qrcode_image %}hidden{% endif %}" method="POST" action="{{ url_for('generate_qr') }}">
+                            <h2 class="mb-4 text-white text-center">Đăng ký Tham dự </h2>
+                            <div class="row">
+                                <div class="col-lg-6 col-md-6 col-12">
+                                    <div class="form-floating mb-4">
+                                        <input type="text" name="guest_name" id="guest_name" class="form-control" placeholder="Họ và tên" required {% if guest_info %}value="{{ guest_info.guest_name }}"{% endif %}>
+                                        <label for="guest_name">Họ và tên</label>
+                                    </div>
+                                </div>
+                                <div class="col-lg-6 col-md-6 col-12">
+                                    <div class="form-floating mb-4">
+                                        <input type="email" name="guest_email" id="guest_email" pattern="[^ @]*@[^ @]*" class="form-control" placeholder="Email" required {% if guest_info %}value="{{ guest_info.guest_email }}"{% endif %}>
+                                        <label for="guest_email">Email</label>
+                                    </div>
+                                </div>
+                                <div class="col-lg-12 col-12">
+                                    <div class="form-floating mb-4">
+                                        <input type="text" name="guest_info" id="guest_info" class="form-control" placeholder="Thông tin thêm (ví dụ: đơn vị công tác)" required {% if guest_info %}value="{{ guest_info.guest_info }}"{% endif %}>
+                                        <label for="guest_info">Thông tin thêm</label>
+                                    </div>
+                                </div>
+                                <div class="col-lg-12 col-12">
+                                    <button type="submit" class="form-control">Tạo Mã QR</button>
+                                </div>
+                            </div>
+                        </form>
+
+                        <div id="qrcode-display" class="mt-4 {% if not qrcode_image %}hidden{% endif %}">
+                            <h3 id="qrcode-title" class="text-center mb-3">Mã QR của bạn:</h3>
+                            <div class="row">
+                                <div class="col-md-6">
+                                    {% if guest_info %}
+                                    <div class="mb-3 bg-light p-3 rounded">
+                                        <p><strong>Họ và tên:</strong> {{ guest_info.guest_name }}</p>
+                                        <p><strong>Email:</strong> {{ guest_info.guest_email }}</p>
+                                        <p><strong>Thông tin thêm:</strong> {{ guest_info.guest_info }}</p>
+                                    </div>
+                                    <div class="text-start">
+                                        <button id="createNewQR" class="btn btn-secondary mt-2">Tạo mã QR mới</button>
+                                    </div>
+                                    {% endif %}
+                                </div>
+                                <div class="col-md-6 text-center">
+                                    {% if qrcode_image %}
+                                    <img id="qrcode" src="{{ qrcode_image }}" alt="QR Code" class="mb-2">
+                                    <div>
+                                        <a href="{{ qrcode_image }}" download="guest_qrcode.png" class="btn btn-primary">Lưu ảnh QR</a>
+                                    </div>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </div>
+
+                        {% if message %}
+                        <div class="alert alert-success mt-3">{{ message }}</div>
+                        {% endif %}
+                        {% if error %}
+                        <div class="alert alert-danger mt-3">{{ error }}</div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+
+            <div class="video-wrap">
+                <video autoplay loop muted class="custom-video" poster="">
+                    <source src="{{ url_for('static', filename='videos/video.mp4') }}" type="video/mp4">
+                    Your browser does not support the video tag.
+                </video>
+            </div>
+        </section>
+    </main>
+
+    <script src="{{ url_for('static', filename='js/jquery.min.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/bootstrap.bundle.min.js') }}"></script>
+    <script>
+        document.getElementById('createNewQR').addEventListener('click', function() {
+            document.getElementById('guestForm').classList.remove('hidden');
+            document.getElementById('qrcode-display').classList.add('hidden');
+            // Ẩn thông báo message và error nếu có
+            var msg = document.querySelector('.alert-success');
+            if (msg) msg.style.display = 'none';
+            var err = document.querySelector('.alert-danger');
+            if (err) err.style.display = 'none';
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="">
+    <meta name="author" content="">
+    <title>Dữ liệu điểm danh</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:ital,wght@0,200;0,400;0,700;1,200&family=Unbounded:wght@400;700&display=swap" rel="stylesheet">
+    <link href="{{ url_for('static', filename='css/bootstrap.min.css') }}" rel="stylesheet">
+    <link href="{{ url_for('static', filename='css/bootstrap-icons.css') }}" rel="stylesheet">
+    <link href="{{ url_for('static', filename='css/tooplate-kool-form-pack.css') }}" rel="stylesheet">
+    <link href="{{ url_for('static', filename='css/attendance.css') }}" rel="stylesheet">
+    <style>
+        body {
+            overflow-y: auto; /* Thay vì scroll, thử auto để thanh cuộn chỉ xuất hiện khi cần */
+        }
+        .hero-section {
+            padding-top: 50px; /* Tăng padding-top nếu cần đẩy bảng xuống nhiều hơn */
+            min-height: auto; /* Loại bỏ min-height: 100vh để section chỉ cao bằng nội dung của nó */
+            display: flex;
+            justify-content: center;
+            align-items: flex-start; /* Giữ căn chỉnh lên trên */
+        }
+        .hero-section .container {
+            margin-top: 60px; /* Tăng margin-top để tạo thêm khoảng cách */
+        }
+    </style>
+</head>
+<body>
+    <main>
+        <header class="site-header">
+            <div class="container">
+                <div class="row justify-content-between">
+                    <div class="col-lg-12 col-12 d-flex">
+                        <a class="site-header-text d-flex justify-content-center align-items-center me-auto" href="{{ url_for('index') }}">
+                            <i class="bi-box"></i>
+                            <span>
+                                Dữ liệu điểm danh
+                            </span>
+                        </a>
+                        <div>
+                            <a href="#" class="custom-btn custom-border-btn btn" data-bs-toggle="modal" data-bs-target="#infoModal">Thông tin
+                                <i class="bi-arrow-right ms-2"></i>
+                            </a>
+                        </div>
+                        <a class="bi-list offcanvas-icon" data-bs-toggle="offcanvas" href="#offcanvasMenu" role="button" aria-controls="offcanvasMenu"></a>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <div class="offcanvas offcanvas-end" data-bs-scroll="true" tabindex="-1" id="offcanvasMenu" aria-labelledby="offcanvasMenuLabel">
+            <div class="offcanvas-header">
+                <button type="button" class="btn-close ms-auto" data-bs-dismiss="offcanvas" aria-label="Close"></button>
+            </div>
+
+            <div class="offcanvas-body d-flex flex-column justify-content-center align-items-center">
+                <nav>
+                    <ul>
+                        <li><a href="{{ url_for('index') }}">Giới thiệu</a></li>
+                        <li>
+                            <a href="#">Nhân viên</a>
+                            <ul>
+                                <li><a href="{{ url_for('face_data') }}">Dữ liệu điểm danh</a></li>
+                                <li><a href="{{ url_for('train_face_page') }}">Nhập dữ liệu nhận diện</a></li>
+                            </ul>
+                        </li>
+
+                        <li>
+                            <a href="{{ url_for('guest_register') }}">Khách mời</a>
+                            <ul>
+                                <li><a href="{{ url_for('guest_register') }}">Đăng ký tham dự</a></li>
+                            </ul>
+                        </li>
+                        <li><a href="{{ url_for('contact') }}">Liên hệ</a></li>
+                    </ul>
+                </nav>
+            </div>
+        </div>
+
+        <div class="modal fade" id="infoModal" tabindex="-1" aria-labelledby="infoModalLabel" aria-hidden="true">
+            <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h2 class="modal-title fw-bold text-white" style="font-size: 35px;"id="infoModalLabel">Dữ liệu điểm danh</h2>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                        <div class="modal-body text-white !important">
+                            <p>Chào mừng bạn đến với trang dữ liệu điểm danh! Tại đây, bạn có thể theo dõi thông tin chi tiết về thời gian điểm danh của nhân viên và khách mời. Dữ liệu được cập nhật liên tục từ hệ thống nhận diện gương mặt và quét mã QR, mang đến cái nhìn tổng quan và chính xác về sự tham gia.</p>
+                            <p>Bảng dữ liệu bên dưới hiển thị các thông tin như thời gian điểm danh, phương thức (nhận diện khuôn mặt hoặc QR Code) và các chi tiết liên quan khác. Hãy sử dụng thông tin này để quản lý và theo dõi hiệu quả.</p>
+                    </div>
+                    <div class="modal-footer justify-content-center">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Đóng</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="main-wrapper" style="background-image: url('/static/images/background1.jpg'); background-size: cover; background-position: center;">
+            <section class="hero-section">
+                <div class="container">
+                    <div class="row">
+                        <div class="col-12">
+                            <h2 class="text-center mb-4">Dữ liệu Điểm danh</h2>
+                            {% if not attendance_data.empty %}
+                            <div class="table-responsive">
+                                <table class="table table-bordered table-striped bg-white custom-attendance-table">
+                                    <thead class="table-dark">
+                                        <tr>
+                                            {% for header in attendance_data.columns %}
+                                            <th>{{ header }}</th>
+                                            {% endfor %}
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {% for row in attendance_data.values %}
+                                        <tr>
+                                            {% for cell in row %}
+                                            <td>{{ cell }}</td>
+                                            {% endfor %}
+                                        </tr>
+                                        {% endfor %}
+                                    </tbody>
+                                </table>
+                            </div>
+                            {% else %}
+                            <p class="text-center">Không có dữ liệu điểm danh.</p>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </div>
+    </main>
+    <script src="{{ url_for('static', filename='js/jquery.min.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/bootstrap.bundle.min.js') }}"></script>
+</body>
+</html>

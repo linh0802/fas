@@ -39,9 +39,12 @@ import time
 import atexit
 # unicodedata - Xử lý chuỗi Unicode (loại bỏ dấu tiếng Việt)
 import unicodedata
-import sys
+import sys, os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from qrcode.constants import ERROR_CORRECT_M
 from qrcode.image.pil import PilImage
+from db import get_db_connection
+from recognition_simple import RecognitionSimple
 
 #sys.stdout = open('/tmp/webapp.log', 'a')
 #sys.stderr = open('/tmp/webapp.log', 'a')
@@ -67,8 +70,14 @@ GMAIL_EMAIL = os.environ.get("GMAIL_EMAIL")
 GMAIL_PASSWORD = os.environ.get("GMAIL_PASSWORD")
 NGROK_URL = os.getenv("NGROK_URL", "")  # Thêm biến môi trường NGROK_URL
 
-print("ENV GMAIL_EMAIL:", os.environ.get("GMAIL_EMAIL"))
-print("ENV GMAIL_PASSWORD:", os.environ.get("GMAIL_PASSWORD"))
+# Khởi tạo RecognitionSimple dùng riêng cho nhận diện ảnh upload
+recognition_simple = None
+
+def get_recognition_simple():
+    global recognition_simple
+    if recognition_simple is None:
+        recognition_simple = RecognitionSimple(model_path="models/train_FN.h5")
+    return recognition_simple
 
 def start_ngrok_tunnel():
     try:
@@ -144,12 +153,21 @@ def login_required(f):
 def login():
     error = None
     if request.method == 'POST':
-        username = request.form['username']
+        username = request.form['username'].strip().lower()
         password = request.form['password']
 
-        if username == VALID_USERNAME and password == VALID_PASSWORD:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM users WHERE LOWER(username)=? AND password=?", (username, password))
+        user = cur.fetchone()
+        conn.close()
+
+        if user:
             session['logged_in'] = True
-            session.permanent = True  # Kích hoạt session vĩnh viễn với thời gian sống đã cấu hình
+            session['user_id'] = user['user_id']
+            session['username'] = user['username']
+            session['full_name'] = user['full_name']
+            session.permanent = True
             next_page = request.args.get('next')
             if next_page:
                 return redirect(next_page)
@@ -168,67 +186,96 @@ def logout():
 @app.route('/train_face')
 @login_required
 def train_face_page():
-    return render_template('train_face.html')
+    full_name = session.get('full_name', '')
+    return render_template('train_face.html', full_name=full_name)
 
 @app.route('/save_face', methods=['POST'])
+@login_required
 def save_face():
     data = request.get_json()
-    if not data or 'name' not in data or 'images' not in data:
-        print("Lỗi: Dữ liệu không hợp lệ")
+    if not data or 'images' not in data:
         return jsonify({'error': 'Dữ liệu không hợp lệ'}), 400
 
-    name = data['name'].strip()
     images = data['images']
-    
-    try:
-        # Chuyển đổi tên thư mục thành không dấu
-        safe_name = unicodedata.normalize('NFKD', name).encode('ASCII', 'ignore').decode('utf-8')
-        # Thay thế khoảng trắng bằng dấu gạch dưới
-        safe_name = safe_name.replace(' ', '_')
-        employee_folder = os.path.join(EMPLOYEE_IMAGES_FOLDER, safe_name)
-        print(f"Đường dẫn thư mục: {employee_folder}")
-        
-        # Kiểm tra xem thư mục đã tồn tại chưa
-        if not os.path.exists(employee_folder):
-            print(f"Tạo thư mục mới: {employee_folder}")
-            os.makedirs(employee_folder, exist_ok=True)
-        
-        for idx, image_data_url in enumerate(images):
-            print(f"Đang xử lý ảnh {idx + 1}/{len(images)}")
-            try:
-                image_data = base64.b64decode(image_data_url.split(',')[1])
-                nparr = np.frombuffer(image_data, np.uint8)
-                img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-                
-                if img is None:
-                    print(f"Lỗi: Không thể giải mã ảnh {idx + 1}")
-                    continue
-                    
-                now = datetime.now()
-                timestamp = now.strftime("%Y%m%d_%H%M%S_%f")
-                filename = os.path.join(employee_folder, f'{timestamp}.jpg')
-                print(f"Đang lưu ảnh vào: {filename}")
-                
-                # Kiểm tra quyền ghi trước khi lưu
-                if not os.access(employee_folder, os.W_OK):
-                    print(f"Không có quyền ghi vào thư mục: {employee_folder}")
-                    return jsonify({'error': 'Không có quyền ghi vào thư mục'}), 500
-                
-                success = cv2.imwrite(filename, img)
-                if not success:
-                    print(f"Lỗi: Không thể lưu ảnh {filename}")
-                else:
-                    print(f"Đã lưu ảnh thành công: {filename}")
-                    
-            except Exception as e:
-                print(f"Lỗi khi xử lý ảnh {idx + 1}: {str(e)}")
+    user_id = session.get('user_id')
+    full_name = session.get('full_name')
+    if not user_id or not full_name:
+        return jsonify({'error': 'Không xác định được user'}), 400
+
+    recog = get_recognition_simple()
+
+    # Kiểm tra dữ liệu training
+    if recog.train_data is None or recog.label_encoder is None:
+        return jsonify({'error': 'Hệ thống chưa có dữ liệu training hoặc label encoder. Vui lòng huấn luyện lại mô hình.'}), 500
+
+    valid_images = []
+    invalid_indices = []
+    log_messages = []
+    for idx, image_data_url in enumerate(images):
+        try:
+            image_data = base64.b64decode(image_data_url.split(',')[1])
+            nparr = np.frombuffer(image_data, np.uint8)
+            img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+            if img is None:
+                invalid_indices.append(idx)
+                log_messages.append(f"Ảnh {idx}: Không đọc được ảnh.")
                 continue
+            face_img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+            face_img = cv2.resize(face_img, (160, 160))
+            embedding, log_msg = recog.get_face_embedding(face_img)
+            if embedding is None:
+                invalid_indices.append(idx)
+                continue
+            similarities = np.dot(recog.train_data['embeddings'], embedding) / (np.linalg.norm(recog.train_data['embeddings'], axis=1) * np.linalg.norm(embedding) + 1e-8)
+            best_match_index = np.argmax(similarities)
+            confidence = similarities[best_match_index]
+            if confidence < recog.FACE_RECOGNITION_THRESHOLD:
+                invalid_indices.append(idx)
+                log_messages.append(f"Ảnh {idx}: Không đủ độ tin cậy.")
+                continue
+            predicted_label = recog.train_data['labels'][best_match_index]
+            try:
+                name = recog.label_encoder.inverse_transform([int(predicted_label)])[0]
+            except Exception:
+                name = str(predicted_label)
+            if name.strip().lower() != full_name.strip().lower():
+                invalid_indices.append(idx)
+                log_messages.append(f"Ảnh {idx}: Không trùng tên user.")
+                continue
+            valid_images.append((idx, img))
+            log_messages.append(f"Ảnh {idx}: Nhận diện thành công cho user {full_name}.")
+        except Exception as e:
+            log_messages.append(f"Ảnh {idx}: Lỗi nhận diện: {e}")
+            invalid_indices.append(idx)
 
-        return jsonify({'success': True})
+    if not valid_images:
+        return jsonify({'error': f'Không có ảnh nào hợp lệ với tài khoản ({full_name}).', 'log': log_messages}), 400
 
-    except Exception as e:
-        print(f"Lỗi khi lưu hình ảnh: {str(e)}")
-        return jsonify({'error': str(e)}), 500
+    conn = get_db_connection()
+    cur = conn.cursor()
+    user_folder = os.path.join(EMPLOYEE_IMAGES_FOLDER, f"user_{user_id}")
+    os.makedirs(user_folder, exist_ok=True)
+    saved_paths = []
+    for idx, img in valid_images:
+        try:
+            filename = os.path.join(user_folder, f"face_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}_{idx}.jpg")
+            cv2.imwrite(filename, img)
+            saved_paths.append(filename)
+        except Exception as e:
+            log_messages.append(f"Ảnh {idx}: Lỗi lưu ảnh: {e}")
+    for path in saved_paths:
+        cur.execute("""
+            INSERT INTO face_profiles(user_id, image_path)
+            VALUES (?, ?)
+        """, (user_id, path))
+    conn.commit()
+    conn.close()
+
+    # In log chi tiết ra terminal
+    for log in log_messages:
+        print(log)
+
+    return jsonify({'success': True, 'message': f'Đã lưu {len(saved_paths)} ảnh hợp lệ, loại bỏ {len(invalid_indices)} ảnh không đúng.', 'log': log_messages})
 
 SCOPES = [
     'https://www.googleapis.com/auth/spreadsheets.readonly',  # Chỉ đọc

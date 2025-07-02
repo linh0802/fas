@@ -18,6 +18,7 @@ import signal
 import psutil
 import textwrap
 import logging
+from smart_tts import play_name_smart
 # Tạo thư mục logs nếu chưa có
 os.makedirs('logs', exist_ok=True)
 log_filename = datetime.now().strftime('logs/face_recognition_%Y%m%d_%H%M%S.log')
@@ -634,6 +635,8 @@ class RecognitionFrame(tk.Frame):
         self._fps_start_time = time.time()
         self._image_references = {}
         self.frame_queue = queue.Queue(maxsize=2)
+        # Thêm flag để chỉ phát âm một lần khi vào trạng thái chờ PIR
+        self.pir_wait_announced = False
         
         # Hàng đợi mới cho xử lý đa luồng
         self.recognition_results_queue = queue.Queue(maxsize=5)
@@ -770,7 +773,7 @@ class RecognitionFrame(tk.Frame):
                 except Exception as e:
                     self.write_log(f"Lỗi khi giải phóng PIR cũ: {e}")
                 self.pir_sensor = None
-            self.recognition_system = RecognitionSystem()
+            self.recognition_system = RecognitionSystem(gui_log_func=self.write_log)
             self.recognition_system.attendance_callback = self.handle_callback
             self.pir_sensor = self.recognition_system.pir_sensor if hasattr(self.recognition_system, 'pir_sensor') else None
             self.write_log('=>Khởi tạo model và cảm biến thành công.')
@@ -842,6 +845,8 @@ class RecognitionFrame(tk.Frame):
                     self.write_log("Phát hiện chuyển động! Khởi động lại webcam...")
                     self.pir_idle = False
                     self.webcam_status_var.set('Hệ thống đang nhận diện')
+                    # Reset flag khi có chuyển động
+                    self.pir_wait_announced = False
                     if not self.controller.get_webcam():
                         self.controller.initialize_webcam()
             else:
@@ -850,6 +855,13 @@ class RecognitionFrame(tk.Frame):
                     self.webcam_status_var.set('Đang chờ tín hiệu PIR...')
                     self.controller.release_webcam()
                     self.write_log("Webcam đã tạm dừng.")
+                    # Phát âm thông báo khi chuyển sang trạng thái chờ PIR, chỉ phát một lần
+                    if not self.pir_wait_announced:
+                        try:
+                            play_name_smart("Hệ thống tạm ngưng, đang chờ chuyển động", log_func=self.write_log)
+                        except Exception as e:
+                            self.write_log(f"Lỗi khi phát âm thông báo PIR: {e}")
+                        self.pir_wait_announced = True
 
             if self.pir_idle:
                 idle_frame = self.get_idle_frame()
@@ -1235,7 +1247,7 @@ class DataEntryFrame(tk.Frame):
             img = cv2.cvtColor(display_frame, cv2.COLOR_BGR2RGB)
             img_pil = Image.fromarray(img)
             imgtk = ImageTk.PhotoImage(image=img_pil)
-            
+            self._imgtk_ref = imgtk  # Giữ tham chiếu để không bị thu gom rác
             self.video_label.config(image=imgtk)
         except queue.Empty:
             pass

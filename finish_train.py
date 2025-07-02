@@ -11,6 +11,8 @@ from sklearn.preprocessing import LabelEncoder
 from concurrent.futures import ThreadPoolExecutor
 from facenet_pytorch import MTCNN
 from PIL import Image
+import sqlite3
+import json
 
 def clear_log_file():
     """Xóa nội dung file training.log."""
@@ -39,8 +41,7 @@ def clear_processed_faces():
     os.makedirs('processed_faces')
     logging.info("Đã xóa và tạo lại thư mục processed_faces")
 
-
-def extract_and_save_faces(images_dir, target_size=(160, 160)):
+def extract_and_save_faces_from_db(target_size=(160, 160)):
     """
     Trích xuất khuôn mặt từ ảnh và lưu vào processed_faces, bảo toàn độ sáng và màu sắc.
     Args:
@@ -59,89 +60,59 @@ def extract_and_save_faces(images_dir, target_size=(160, 160)):
     
     processed_faces_dir = 'processed_faces'
     os.makedirs(processed_faces_dir, exist_ok=True)
-    
-    # Đếm tổng số ảnh cần xử lý
-    total_images = 0
-    for person_name in os.listdir(images_dir):
-        person_dir = os.path.join(images_dir, person_name)
-        if not os.path.isdir(person_dir):
-            continue
-        total_images += len(os.listdir(person_dir))
-    
+    # Lấy danh sách ảnh từ DB
+    conn = sqlite3.connect('database.db')
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+    cur.execute('''
+        SELECT users.user_id, users.full_name, face_profiles.image_path
+        FROM face_profiles
+        JOIN users ON face_profiles.user_id = users.user_id
+    ''')
+    data = cur.fetchall()
+    conn.close()
+    total_images = len(data)
     total_processed = 0
     total_failed = 0
-    
-    for person_name in os.listdir(images_dir):
-        person_dir = os.path.join(images_dir, person_name)
-        if not os.path.isdir(person_dir):
-            continue
-            
-        output_person_dir = os.path.join(processed_faces_dir, person_name)
+    user_id_to_fullname = {}
+    for idx, row in enumerate(data, 1):
+        user_id = row['user_id']
+        full_name = row['full_name']
+        user_id_to_fullname[str(user_id)] = full_name
+        image_path = row['image_path']
+        output_person_dir = os.path.join(processed_faces_dir, str(user_id))
         os.makedirs(output_person_dir, exist_ok=True)
-        
-        logging.info(f"Đang xử lý thư mục: {person_name}")
-        
-        for img_name in os.listdir(person_dir):
-            img_path = os.path.join(person_dir, img_name)
-            
-            try:
-                # Đọc và kiểm tra ảnh đầu vào
-                img = Image.open(img_path).convert('RGB')
-                img_array = np.array(img)
-                if img_array.size == 0 or img_array.shape[-1] != 3:
-                    logging.error(f"Ảnh đầu vào không hợp lệ: {img_path}")
-                    total_failed += 1
-                    continue
-                
-                logging.info(f"Kênh màu ảnh gốc {img_name}: {img_array[0, 0]}")
-                
-                # Phát hiện khuôn mặt
-                face = mtcnn(img)
-                
-                if face is not None:
-                    # Chuyển tensor về numpy array
-                    face = face.permute(1, 2, 0).numpy()
-                    if face.shape[-1] != 3:
-                        logging.error(f"Tensor từ MTCNN không có 3 kênh màu: {img_path}")
-                        total_failed += 1
-                        continue
-                    
-                    # Chuẩn hóa và bảo toàn độ sáng
-                    logging.info(f"Giá trị pixel trước chuẩn hóa {img_name}: min={face.min()}, max={face.max()}")
-                    face = (face - face.min()) / (face.max() - face.min() + 1e-8)  # Chuẩn hóa về [0, 1]
-                    
-                    # Bảo toàn tỷ lệ màu sắc
-                    face = face * 255.0  # Đưa về [0, 255]
-                    face = face.astype(np.uint8)
-                    
-                    # Lưu ảnh bằng PIL
-                    face_pil = Image.fromarray(face)
-                    output_path = os.path.join(output_person_dir, f"processed_{img_name}")
-                    face_pil.save(output_path)
-                    
-                    total_processed += 1
-                    # Chỉ log % từ 0-49% ở bước này
-                    percent = int(total_processed / total_images * 49) if total_images else 0
-                    logging.info(f"Tiến trình: {total_processed}/{total_images} ({percent}%)")
-                    print(f"Tiến trình: {total_processed}/{total_images} ({percent}%)", flush=True)
-                    if total_processed % 10 == 0:
-                        logging.info(f"Đã xử lý {total_processed} ảnh")
-                else:
-                    logging.warning(f"Không phát hiện được khuôn mặt trong ảnh: {img_path}")
-                    total_failed += 1
-                    
-            except Exception as e:
-                logging.error(f"Lỗi xử lý ảnh {img_path}: {str(e)}")
+        try:
+            img = Image.open(image_path).convert('RGB')
+            face = mtcnn(img)
+            if face is not None:
+                face = face.permute(1, 2, 0).numpy()
+                face = (face - face.min()) / (face.max() - face.min() + 1e-8)
+                face = (face * 255.0).astype(np.uint8)
+                face_pil = Image.fromarray(face)
+                output_path = os.path.join(output_person_dir, f"processed_{os.path.basename(image_path)}")
+                face_pil.save(output_path)
+                total_processed += 1
+            else:
+                logging.warning(f"Không phát hiện được khuôn mặt trong ảnh: {image_path}")
                 total_failed += 1
-                continue
-    
+        except Exception as e:
+            logging.error(f"Lỗi xử lý ảnh {image_path}: {e}")
+            total_failed += 1
+            continue
+        # Cập nhật tiến độ sau mỗi 20 ảnh đã kiểm tra (không quan trọng thành công/thất bại)
+        if idx % 20 == 0 or idx == total_images:
+            percent = round((idx / total_images) * 50) if total_images else 0
+            logging.info(f"Tiến trình: {idx}/{total_images} ({percent}%)")
+            print(f"Tiến trình: {idx}/{total_images} ({percent}%)", flush=True)
     logging.info(f"Hoàn thành xử lý ảnh:")
     logging.info(f"- Tổng số ảnh đã xử lý thành công: {total_processed}")
     logging.info(f"- Tổng số ảnh thất bại: {total_failed}")
-    # Log 50% sau khi xử lý xong toàn bộ ảnh hợp lệ
-    logging.info(f"Tiến trình: {total_processed}/{total_images} (50%)")
-    print(f"Tiến trình: {total_processed}/{total_images} (50%)", flush=True)
-    
+    logging.info(f"Tiến trình: (50%)")
+    print(f"Tiến trình: Hoàn thành xử lý ảnh (50%)", flush=True)
+    # Lưu ánh xạ ra file
+    with open('user_id_to_fullname.json', 'w', encoding='utf-8') as f:
+        json.dump(user_id_to_fullname, f, ensure_ascii=False)
     return processed_faces_dir
 
 def process_batch(batch, embedding_model='Facenet512'):
@@ -202,26 +173,37 @@ def create_training_data(
             
         logging.info(f"Tìm thấy {len(person_dirs)} thư mục người")
         
+        with open('user_id_to_fullname.json', 'r', encoding='utf-8') as f:
+            user_id_to_fullname = json.load(f)
+        
+        total_embedding_images = 0
         for person_name in person_dirs:
             person_path = os.path.join(processed_faces_dir, person_name)
             logging.info(f"Đang xử lý thư mục: {person_name}")
-            
             image_files = [
                 f for f in os.listdir(person_path)
                 if f.startswith(('processed_', 'augmented_'))
             ]
-            
             if len(image_files) < 5:
                 logging.warning(f"Thư mục {person_name} có ít hơn 5 ảnh, bỏ qua")
                 continue
-            
-            # Xử lý ảnh theo batch
+            total_embedding_images += len(image_files)
+        # Reset lại biến đếm
+        embedding_processed = 0
+        
+        for person_name in person_dirs:
+            person_path = os.path.join(processed_faces_dir, person_name)
+            logging.info(f"Đang xử lý thư mục: {person_name}")
+            image_files = [
+                f for f in os.listdir(person_path)
+                if f.startswith(('processed_', 'augmented_'))
+            ]
+            if len(image_files) < 5:
+                continue
             batches = [image_files[i:i + batch_size] for i in range(0, len(image_files), batch_size)]
-            
             for batch in batches:
                 batch_images = []
                 batch_paths = []
-                
                 for image_file in batch:
                     image_path = os.path.join(person_path, image_file)
                     try:
@@ -229,34 +211,35 @@ def create_training_data(
                         if img is None:
                             failed_images.append((image_file, "Không thể đọc ảnh"))
                             continue
-                            
                         img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
                         img = img.astype(np.float32) / 255.0
                         batch_images.append(img)
                         batch_paths.append(image_file)
-                        
                     except Exception as e:
                         failed_images.append((image_file, str(e)))
                         continue
-                
                 if batch_images:
                     with ThreadPoolExecutor(max_workers=4) as executor:
                         batch_embeddings = executor.submit(process_batch, batch_images, embedding_model).result()
-                    
                     for embedding, image_file in zip(batch_embeddings, batch_paths):
                         if embedding:
                             embeddings.append(embedding)
-                            labels.append(person_name)
+                            label = user_id_to_fullname.get(person_name, person_name)
+                            labels.append(label)
                         else:
                             failed_images.append((image_file, "Lỗi tạo embedding"))
-                            
-                    # Giải phóng bộ nhớ
+                        embedding_processed += 1
+                        # Cập nhật tiến độ sau mỗi 20 ảnh embedding, chia đều từ 50% đến 100%
+                        if embedding_processed % 20 == 0 or embedding_processed == total_embedding_images:
+                            percent = 50 + round((embedding_processed / total_embedding_images) * 50) if total_embedding_images else 50
+                            logging.info(f"Tiến trình: {embedding_processed}/{total_embedding_images} ({percent}%)")
+                            print(f"Tiến trình: {embedding_processed}/{total_embedding_images} ({percent}%)", flush=True)
                     del batch_images
                     gc.collect()
         
         # Sau khi trích xuất embedding xong, log 90%
-        logging.info(f"Tiến trình: 0/0 (90%)")
-        print(f"Tiến trình: 0/0 (90%)", flush=True)
+        logging.info(f"Tiến trình: (90%)")
+        print(f"Tiến trình: Hoàn thành trích xuất embedding (90%)", flush=True)
         if embeddings:
             label_encoder = LabelEncoder()
             encoded_labels = label_encoder.fit_transform(labels)
@@ -292,9 +275,9 @@ def create_training_data(
                 with open('failed_images.log', 'w', encoding='utf-8') as f:
                     for img, reason in failed_images:
                         f.write(f"{img}: {reason}\n")
-            # Log 100% sau khi lưu file train thành công
-            logging.info(f"Tiến trình: 0/0 (100%)")
-            print(f"Tiến trình: 0/0 (100%)", flush=True)
+            # Đảm bảo in ra đúng 100% khi kết thúc
+            logging.info(f"Tiến trình: (100%)")
+            print(f"Tiến trình: Hoàn thành tạo file train (100%)", flush=True)
         else:
             raise ValueError("Không có dữ liệu khuôn mặt nào được xử lý.")
             
@@ -307,7 +290,7 @@ def main():
         clear_log_file()  # Xóa log cũ trước khi bắt đầu
         ensure_directories()
         clear_processed_faces()
-        processed_faces_dir = extract_and_save_faces("images_attendance", target_size=(160, 160))
+        processed_faces_dir = extract_and_save_faces_from_db(target_size=(160, 160))
         create_training_data(
             processed_faces_dir=processed_faces_dir,
             output_train_file="models/train_FN.h5",

@@ -108,7 +108,7 @@
 
         #personName {
             font-size: 22px;
-            color: var(--white-color);
+            color: #000 !important;
             align-items: center;
             text-align: center;
         }
@@ -436,14 +436,13 @@
                         <div class="controls-row">
                             <div id="controls-container">
                                 <label for="personName" class="form-label me-2 fw-bold">Tên:</label>
-                                <input type="text" id="personName" class="form-control">
+                                <input type="text" id="personName" class="form-control" value="{{ full_name }}" readonly>
                             </div>
                             <button id="startButton" class="btn custom-btn">Chụp</button>
                             <button id="saveButton" class="btn custom-btn">Lưu</button>
                         </div>
 
                         <div class="messages-container">
-                            <div id="name-error" class="error-message"></div>
                             <div id="message"></div>
                         </div>
                     </div>
@@ -557,17 +556,8 @@
         });
 
         startButton.addEventListener('click', () => {
-            if (!personNameInput.value.trim()) {
-                nameErrorDiv.innerText = 'Vui lòng nhập tên trước khi bắt đầu chụp.';
-                nameErrorDiv.style.display = 'block';
-                messageDiv.style.display = 'none';
-                return;
-            } else {
-                nameErrorDiv.innerText = '';
-                nameErrorDiv.style.display = 'none';
-                messageDiv.innerText = 'Đang chụp...';
-                messageDiv.style.display = 'block';
-            }
+            messageDiv.innerText = 'Đang chụp...';
+            messageDiv.style.display = 'block';
 
             capturedImages = [];
             captureCount = 0;
@@ -638,7 +628,7 @@
                 setTimeout(captureIntervalFunction, captureInterval);
             } else {
                 isCapturing = false;
-                messageDiv.innerHTML = 'Đã chụp xong.<br>Nhấn Lưu để tải hình ảnh lên.';
+                messageDiv.innerHTML = 'Đã chụp xong. Nhấn Lưu để tải hình ảnh lên.';
                 saveButton.style.display = 'inline-block';
             }
         }
@@ -646,13 +636,13 @@
         saveButton.addEventListener('click', async () => {
             const personName = personNameInput.value.trim();
             if (!personNameInput.value.trim() || capturedImages.length === 0) {
-                messageDiv.innerHTML = 'Vui lòng nhập tên và chụp ảnh trước khi lưu.';
+                messageDiv.innerHTML = 'Vui lòng chụp ảnh trước khi lưu.';
                 messageDiv.style.display = 'block';
                 return;
             }
 
             saveButton.disabled = true;
-            messageDiv.innerHTML = 'Đang lưu...<br>Vui lòng đợi';
+            messageDiv.innerHTML = 'Đang lưu...Vui lòng đợi';
             messageDiv.style.display = 'block';
             progressBar.style.width = '0%';
             progressValue.innerText = 'Đang tải...';
@@ -663,12 +653,17 @@
                     headers: {
                         'Content-Type': 'application/json'
                     },
-                    body: JSON.stringify({ name: personName, images: capturedImages })
+                    body: JSON.stringify({ images: capturedImages })
                 });
 
                 if (!response.ok) {
                     const errorData = await response.json();
-                    throw new Error(`Lỗi server: ${errorData.error || response.statusText}`);
+                    messageDiv.innerHTML = errorData.error || response.statusText;
+                    messageDiv.style.display = 'block';
+                    startButton.style.display = 'inline-block';
+                    saveButton.disabled = false;
+                    saveButton.style.display = 'inline-block';
+                    return;
                 }
 
                 const data = await response.json();
@@ -681,7 +676,7 @@
                     document.querySelector('.webcam-section').style.display = 'none';
                     saveButton.style.display = 'none';
 
-                    saveSuccessMessage.innerText = 'Lưu hình ảnh thành công!';
+                    saveSuccessMessage.innerText = data.message;
                     postSaveInfo.style.display = 'block';
 
                     if (videoStream) {
@@ -698,7 +693,7 @@
                 }
             } catch (error) {
                 console.error('Lỗi khi gửi dữ liệu lên server:', error);
-                messageDiv.innerHTML = `Lỗi khi gửi dữ liệu lên server:<br>${error.message}`;
+                messageDiv.innerHTML = `Lỗi khi lưu ảnh`;
                 messageDiv.style.display = 'block';
                 startButton.style.display = 'inline-block';
                 saveButton.disabled = false;

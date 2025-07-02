@@ -17,6 +17,8 @@ from datetime import datetime
 import json
 import queue
 from typing import Callable, Optional
+# Thêm import hàm đọc tên thông minh
+from smart_tts import play_name_smart
 try:
     from pir_sensor import PIRSensor
 except (ImportError, RuntimeError) as e:
@@ -29,7 +31,8 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 _face_attendance_logging_configured = False
 
 class RecognitionSystem:
-    def __init__(self, sheet_name="Attendance", credentials_path='credentials/face-attendance.json', pir_pin=17):
+    def __init__(self, sheet_name="Attendance", credentials_path='credentials/face-attendance.json', pir_pin=17, gui_log_func=None):
+        self.gui_log_func = gui_log_func
         self.setup_logging()
         logging.info("Khởi tạo Hệ thống Nhận diện...")
         
@@ -180,6 +183,12 @@ class RecognitionSystem:
                 is_real, antispoof_score = self.fasnet.analyze(frame, (x1, y1, w, h))
                 if not is_real or antispoof_score < self.ANTISPOOF_THRESHOLD:
                     all_faces_info.append({'name': 'Fake', 'facial_area': facial_area, 'confidence': antispoof_score})
+                    # Chỉ phát âm nếu antispoof_score < 0.5
+                    if antispoof_score < 0.5:
+                        try:
+                            play_name_smart("Phát hiện gương mặt giả mạo", log_func=self.gui_log_func if hasattr(self, 'gui_log_func') else None)
+                        except Exception as e:
+                            logging.error(f"Lỗi khi đọc thông báo giả mạo: {e}")
                     continue
                 # 3. Nhận diện khuôn mặt thật
                 face_img = self.preprocess_face(frame, (x1, y1, w, h))
@@ -208,10 +217,21 @@ class RecognitionSystem:
                         self.log_attendance(name, confidence, "FACE", is_duplicate=False)
                     else:
                         logging.info(f"Đã điểm danh (trùng): {name} (FACE)")
+                        # Thông báo điểm danh trùng
+                        try:
+                            play_name_smart("Người này đã được điểm danh rồi", log_func=self.gui_log_func if hasattr(self, 'gui_log_func') else None)
+                        except Exception as e:
+                            logging.error(f"Lỗi khi đọc thông báo duplicate: {e}")
                         pass
                     all_faces_info.append({'name': name, 'facial_area': facial_area, 'confidence': confidence})
                 else:
                     all_faces_info.append({'name': 'Unknown', 'facial_area': facial_area, 'confidence': confidence})
+                    # Chỉ phát âm nếu confidence < 0.5
+                    if confidence < 0.5:
+                        try:
+                            play_name_smart("Không có thông tin về gương mặt này", log_func=self.gui_log_func if hasattr(self, 'gui_log_func') else None)
+                        except Exception as e:
+                            logging.error(f"Lỗi khi đọc thông báo unknown: {e}")
         # 5. Phát hiện mã QR
         try:
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
@@ -309,6 +329,12 @@ class RecognitionSystem:
                 logging.error(f"Lỗi ghi Google Sheets: {e}")
         elif is_duplicate:
             logging.info(f"Đã điểm danh (trùng): {name} ({mode})")
+        # Gọi hàm đọc tên thông minh khi điểm danh thành công (không duplicate, chỉ cho FACE)
+        if not is_duplicate and mode == "FACE":
+            try:
+                play_name_smart(f"Đã điểm danh thành công {name}", log_func=self.gui_log_func if hasattr(self, 'gui_log_func') else None)
+            except Exception as e:
+                logging.error(f"Lỗi khi đọc tên bằng TTS: {e}")
 
     def stop(self):
         logging.info("Yêu cầu dừng hệ thống nhận diện...")

@@ -19,18 +19,23 @@ import psutil
 import textwrap
 import logging
 from smart_tts import play_name_smart
+from recognition_simple import RecognitionSimple
 # Tạo thư mục logs nếu chưa có
 os.makedirs('logs', exist_ok=True)
 log_filename = datetime.now().strftime('logs/face_recognition_%Y%m%d_%H%M%S.log')
 
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler(log_filename, encoding='utf-8'),
-        logging.StreamHandler()  # Nếu muốn log ra cả console
-    ]
-)
+root_logger = logging.getLogger()
+root_logger.setLevel(logging.INFO)
+formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+# Xóa tất cả handler cũ (nếu có)
+for handler in root_logger.handlers[:]:
+    root_logger.removeHandler(handler)
+file_handler = logging.FileHandler(log_filename, encoding='utf-8')
+file_handler.setFormatter(formatter)
+root_logger.addHandler(file_handler)
+console_handler = logging.StreamHandler()
+console_handler.setFormatter(formatter)
+root_logger.addHandler(console_handler)
 
 # Đường dẫn các file/script
 TRAIN_SCRIPT = 'finish_train.py'
@@ -43,6 +48,10 @@ DARK_ACCENT = '#00bcd4'
 DARK_TEXT = '#f1f1f1'
 DARK_BTN = '#222c36'
 DARK_BTN_HOVER = '#00bcd4'
+
+# Ẩn log DEBUG của urllib3 và requests
+logging.getLogger("urllib3").setLevel(logging.WARNING)
+logging.getLogger("requests").setLevel(logging.WARNING)
 
 class EnlargedFaceWindow(tk.Toplevel):
     def __init__(self, parent, name, image):
@@ -327,7 +336,6 @@ class AttendanceGUI(tk.Tk):
 
         self.attributes('-fullscreen', True)
         self.bind("<Escape>", lambda e: self.attributes("-fullscreen", False))
-
     def initialize_webcam(self):
         """Khởi tạo webcam tập trung"""
         with self.webcam_lock:
@@ -640,11 +648,16 @@ class RecognitionFrame(tk.Frame):
         
         # Hàng đợi mới cho xử lý đa luồng
         self.recognition_results_queue = queue.Queue(maxsize=5)
+        # Queue cho TTS để tránh deadlock
+        self.tts_queue = queue.Queue(maxsize=3)
 
         self.reset_state(log=False)
 
         self.qr_capture_popup = None
         self.qr_capture_in_progress = False
+        self.recog_simple = RecognitionSimple(model_path="models/train_FN.h5")
+        self.detected_name = None
+        self.detected_confidence = 0
     def _log_on_click(self, event):
         self._log_scroll_start_y = event.y
         self._log_scroll_start_view = self.log_text.yview()[0]
@@ -724,6 +737,8 @@ class RecognitionFrame(tk.Frame):
             self.webcam_thread.join(timeout=1)
         if self.recognition_thread and self.recognition_thread.is_alive():
             self.recognition_thread.join(timeout=1)
+        if hasattr(self, 'tts_thread') and self.tts_thread and self.tts_thread.is_alive():
+            self.tts_thread.join(timeout=1)
         # Dừng recognition system
         if self.recognition_system:
             if hasattr(self.recognition_system, 'stop'):
@@ -760,6 +775,12 @@ class RecognitionFrame(tk.Frame):
         if self.running:
             self.write_log('(!) Hệ thống nhận diện đã chạy từ trước.')
             return
+        if not self.controller.web_running:
+            self.write_log('Web app chưa khởi động xong, vui lòng đợi...')
+            self.webcam_status_var.set('Đang chờ web app khởi động...')
+            # Thử lại sau 1 giây
+            self.after(1000, self.start_recognition_system)
+            return
         self.write_log('=>Khởi động hệ thống nhận diện...')
         self.webcam_status_var.set('Đang khởi tạo các thành phần...')
         threading.Thread(target=self._initialize_system, daemon=True).start()
@@ -773,28 +794,61 @@ class RecognitionFrame(tk.Frame):
                 except Exception as e:
                     self.write_log(f"Lỗi khi giải phóng PIR cũ: {e}")
                 self.pir_sensor = None
-            self.recognition_system = RecognitionSystem(gui_log_func=self.write_log)
-            self.recognition_system.attendance_callback = self.handle_callback
-            self.pir_sensor = self.recognition_system.pir_sensor if hasattr(self.recognition_system, 'pir_sensor') else None
-            self.write_log('=>Khởi tạo model và cảm biến thành công.')
-            self.running = True
-            self.pir_last_motion_time = time.time()
-            self.pir_idle = False
-            self.webcam_status_var.set('Hệ thống đang nhận diện')
-            if not self.controller.initialize_webcam():
-                self.write_log('=>Không thể mở webcam.')
-                self.running = False
-                self.webcam_status_var.set('Lỗi webcam.')
+            
+            # Khởi tạo RecognitionSystem với try-catch riêng
+            try:
+                self.recognition_system = RecognitionSystem(gui_log_func=self.write_log)
+                self.recognition_system.attendance_callback = self.handle_callback
+                self.pir_sensor = self.recognition_system.pir_sensor if hasattr(self.recognition_system, 'pir_sensor') else None
+                self.write_log('=>Khởi tạo model và cảm biến thành công.')
+            except Exception as e:
+                self.write_log(f"=>Lỗi khởi tạo RecognitionSystem: {e}")
+                self.webcam_status_var.set('Lỗi khởi tạo model.')
+                self.start_btn.config(state='normal', text='Khởi động lại')
+                self.stop_btn.config(state='disabled')
                 return
-            self.webcam_thread = threading.Thread(target=self.update_webcam, daemon=True)
-            self.recognition_thread = threading.Thread(target=self.recognition_processing_thread, daemon=True)
-            self.webcam_thread.start()
-            self.recognition_thread.start()
-            self.update_gui_from_queue()
-            self.start_btn.config(state='disabled', text='Khởi động lại')
-            self.stop_btn.config(state='normal')
-            self.webcam_status_var.set('Hệ thống đang hoạt động')
-            self.write_log("=>Hệ thống nhận diện đã sẵn sàng.")
+            
+            # Khởi tạo webcam với try-catch riêng
+            try:
+                if not self.controller.initialize_webcam():
+                    self.write_log('=>Không thể mở webcam.')
+                    self.webcam_status_var.set('Lỗi webcam.')
+                    self.start_btn.config(state='normal', text='Khởi động lại')
+                    self.stop_btn.config(state='disabled')
+                    return
+            except Exception as e:
+                self.write_log(f"=>Lỗi khởi tạo webcam: {e}")
+                self.webcam_status_var.set('Lỗi webcam.')
+                self.start_btn.config(state='normal', text='Khởi động lại')
+                self.stop_btn.config(state='disabled')
+                return
+            
+            # Khởi tạo các thread
+            try:
+                self.running = True
+                self.pir_last_motion_time = time.time()
+                self.pir_idle = False
+                self.webcam_status_var.set('Hệ thống đang nhận diện')
+                
+                self.webcam_thread = threading.Thread(target=self.update_webcam, daemon=True)
+                self.recognition_thread = threading.Thread(target=self.recognition_processing_thread, daemon=True)
+                self.tts_thread = threading.Thread(target=self.tts_processing_thread, daemon=True)
+                self.webcam_thread.start()
+                self.recognition_thread.start()
+                self.tts_thread.start()
+                
+                self.update_gui_from_queue()
+                self.start_btn.config(state='disabled', text='Khởi động lại')
+                self.stop_btn.config(state='normal')
+                self.webcam_status_var.set('Hệ thống đang hoạt động')
+                self.write_log("=>Hệ thống nhận diện đã sẵn sàng.")
+            except Exception as e:
+                self.write_log(f"=>Lỗi khởi tạo thread: {e}")
+                self.running = False
+                self.webcam_status_var.set('Lỗi khởi tạo thread.')
+                self.start_btn.config(state='normal', text='Khởi động lại')
+                self.stop_btn.config(state='disabled')
+                
         except Exception as e:
             self.write_log(f"=>Lỗi nghiêm trọng khi khởi tạo: {e}")
             self.webcam_status_var.set('Lỗi khởi tạo hệ thống.')
@@ -858,7 +912,8 @@ class RecognitionFrame(tk.Frame):
                     # Phát âm thông báo khi chuyển sang trạng thái chờ PIR, chỉ phát một lần
                     if not self.pir_wait_announced:
                         try:
-                            play_name_smart("Hệ thống tạm ngưng, đang chờ chuyển động", log_func=self.write_log)
+                            # Gọi TTS trong main thread để tránh deadlock
+                            self.after(0, lambda: self._play_pir_wait_message())
                         except Exception as e:
                             self.write_log(f"Lỗi khi phát âm thông báo PIR: {e}")
                         self.pir_wait_announced = True
@@ -936,6 +991,27 @@ class RecognitionFrame(tk.Frame):
         """Ghi log chỉ khi chế độ verbose được bật."""
         if self.verbose_logging.get():
             self.controller.write_log(f"   [VERBOSE] {msg}")
+
+    def _play_pir_wait_message(self):
+        """Phát âm thông báo PIR thông qua queue"""
+        try:
+            self.tts_queue.put_nowait("Hệ thống tạm ngưng, đang chờ chuyển động")
+        except queue.Full:
+            pass  # Bỏ qua nếu queue đầy
+        except Exception as e:
+            self.write_log(f"Lỗi khi gửi thông báo PIR: {e}")
+
+    def tts_processing_thread(self):
+        """Thread riêng để xử lý TTS"""
+        while self.running:
+            try:
+                message = self.tts_queue.get(timeout=1)
+                if message:
+                    play_name_smart(message, log_func=self.write_log)
+            except queue.Empty:
+                continue
+            except Exception as e:
+                self.write_log(f"Lỗi TTS: {e}")
 
     def process_and_draw(self, frame):
         if not self.recognition_system: return frame, set(), dict()
@@ -1158,14 +1234,14 @@ class DataEntryFrame(tk.Frame):
         captured_container = tk.LabelFrame(right_col, text="Ảnh đã chụp", font=('Arial', 14, 'bold'), bg=DARK_PANEL, fg=DARK_ACCENT, relief='groove', bd=2, labelanchor='n', height=387)
         captured_container.pack(side='top', fill='x', expand=False, pady=(0, 5))
         captured_container.pack_propagate(False)
+        self.captured_container = captured_container
         self.captured_canvas = tk.Canvas(captured_container, bg=DARK_PANEL, highlightthickness=0, height=360)
-        scrollbar = ttk.Scrollbar(captured_container, orient='vertical', command=self.captured_canvas.yview)
-        self.captured_canvas.configure(yscrollcommand=scrollbar.set)
-        scrollbar.pack(side='right', fill='y')
         self.captured_canvas.pack(side='left', fill='both', expand=True)
         self.scrollable_frame = tk.Frame(self.captured_canvas, bg=DARK_PANEL)
         self.captured_canvas.create_window((30,0), window=self.scrollable_frame, anchor='nw')
         self.scrollable_frame.bind("<Configure>", lambda e: self.captured_canvas.configure(scrollregion=self.captured_canvas.bbox("all")))
+        # Bàn phím ảo Frame (ẩn mặc định)
+        self.keyboard_frame = None
 
         # --- Controls (nằm dưới main_frame, full width) ---
         controls_frame = tk.Frame(self, bg=DARK_BG)
@@ -1176,6 +1252,9 @@ class DataEntryFrame(tk.Frame):
         tk.Label(entry_frame, text="Nhập tên:", font=('Arial', 14), fg=DARK_TEXT, bg=DARK_BG).pack(side='left', padx=5)
         self.name_entry = tk.Entry(entry_frame, font=('Arial', 14), width=25)
         self.name_entry.pack(side='left')
+        self.name_entry.bind("<Button-1>", self.show_keyboard_frame)
+        # Bàn phím ảo Tkinter
+
         self.btn_frame = tk.Frame(controls_frame, bg=DARK_BG)
         self.btn_frame.pack(pady=5)
         self.capture_btn = ttk.Button(self.btn_frame, text='Chụp 10 ảnh', command=self.capture_face)
@@ -1200,6 +1279,10 @@ class DataEntryFrame(tk.Frame):
         self._log_scroll_start_y = 0
         self._log_scroll_start_view = 0
 
+        self.recog_simple = RecognitionSimple(model_path="models/train_FN.h5")
+        self.detected_name = None
+        self.detected_confidence = 0
+
     def switch_to_recognition(self):
         """Chuyển về frame nhận diện và giải phóng webcam"""
         self.stop_processes()
@@ -1208,10 +1291,52 @@ class DataEntryFrame(tk.Frame):
         self.controller.show_frame(RecognitionFrame)
 
     def start_processes(self):
-        """Overrides the base method in DataEntryFrame."""
         self.clear_pending_images() # Reset trạng thái khi frame được hiển thị
-        self.name_entry.delete(0, 'end')
+        self.name_entry.config(state='normal')  # Đảm bảo Entry luôn ở trạng thái nhập được
+        self.name_entry.delete(0, 'end')        # Xóa nội dung cũ
+        self.detected_name = None
+        self.detected_confidence = 0
         self.start_webcam()
+        self._auto_detect_running = True
+        self._auto_detect_names = []  # Danh sách lưu kết quả tên predict
+        self._auto_detect_confs = []  # Danh sách lưu xác suất
+        self._auto_detect_frame_count = 0
+        self.auto_detect_face_loop()
+
+    def auto_detect_face_loop(self):
+        # Nhận diện 10 frame đầu tiên khi vào giao diện, lấy tên xuất hiện nhiều nhất
+        if not getattr(self, '_auto_detect_running', False):
+            return
+        if self._auto_detect_frame_count >= 10:
+            # Đếm tần suất tên, loại Unknown và conf <= 0.65
+            valid_names = [n for n, c in zip(self._auto_detect_names, self._auto_detect_confs) if n != "Unknown" and c > 0.65]
+            if valid_names:
+                from collections import Counter
+                most_common_name, count = Counter(valid_names).most_common(1)[0]
+                self.name_entry.delete(0, 'end')
+                self.name_entry.insert(0, most_common_name)
+                self.name_entry.config(state='disabled')
+                self.detected_name = most_common_name
+                # Lấy xác suất trung bình của tên này
+                avg_conf = sum([c for n, c in zip(self._auto_detect_names, self._auto_detect_confs) if n == most_common_name]) / count
+                self.detected_confidence = avg_conf
+                self._auto_detect_running = False
+                self.controller.write_log(f"Đã nhận diện: {most_common_name} (trung bình {avg_conf:.2f})")
+            else:
+                self._auto_detect_running = False
+                self.name_entry.config(state='normal')
+                self.detected_name = None
+                self.controller.write_log("Không nhận diện được ai, vui lòng nhập tên mới.")
+            return
+        ret, frame = self.controller.read_webcam_frame()
+        if ret:
+            img = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            img = cv2.resize(img, (160, 160))
+            name, conf = self.recog_simple.predict_name(img)
+            self._auto_detect_names.append(name)
+            self._auto_detect_confs.append(conf)
+            self._auto_detect_frame_count += 1
+        self.after(200, self.auto_detect_face_loop)
 
     def stop_processes(self):
         self.stop_webcam()
@@ -1285,7 +1410,7 @@ class DataEntryFrame(tk.Frame):
         if not name:
             messagebox.showerror("Lỗi", "Vui lòng nhập tên người cần thêm.")
             return
-
+        self.hide_keyboard_frame()  # Tắt bàn phím ảo khi bấm chụp
         self.capture_btn.config(state='disabled', text='Đang chụp...')
         self.clear_pending_images(clear_ui=False) # Xóa ảnh cũ nhưng không reset UI
         threading.Thread(target=self._capture_10_photos, args=(name,), daemon=True).start()
@@ -1327,30 +1452,78 @@ class DataEntryFrame(tk.Frame):
         self.capture_btn.pack(side='left', padx=10)
 
     def save_captured_images(self):
-        name = self.name_entry.get().strip()
-        if not name:
-            messagebox.showerror("Lỗi", "Tên không được để trống khi lưu.")
-            return
-
-        if not self.pending_images:
-            messagebox.showwarning("Lưu ý", "Không có ảnh nào để lưu.")
-            return
-            
-        self.controller.write_log(f"Bắt đầu lưu {len(self.pending_images)} ảnh cho '{name}'...")
-        person_dir = os.path.join('images_attendance', name)
-        os.makedirs(person_dir, exist_ok=True)
-        
-        try:
+        import sqlite3
+        DB_PATH = "database.db"
+        if self.detected_name:  # User đã có
+            name = self.detected_name
+            valid_count = 0
+            invalid_count = 0
+            # Lấy user_id từ tên
+            conn = sqlite3.connect(DB_PATH)
+            cur = conn.cursor()
+            cur.execute("SELECT user_id FROM users WHERE username=?", (name,))
+            row = cur.fetchone()
+            user_id = row[0] if row else None
+            conn.close()
             for i, img_data in enumerate(self.pending_images):
+                img = cv2.cvtColor(img_data, cv2.COLOR_BGR2RGB)
+                img = cv2.resize(img, (160, 160))
+                pred_name, conf = self.recog_simple.predict_name(img)
+                if pred_name == name and conf > 0.65:
+                    person_dir = os.path.join('images_attendance', f"user_{user_id}")
+                    os.makedirs(person_dir, exist_ok=True)
+                    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S_%f')
+                    filename = os.path.join(person_dir, f"{timestamp}.jpg")
+                    cv2.imwrite(filename, img_data)
+                    # Cập nhật DB
+                    if user_id:
+                        conn = sqlite3.connect(DB_PATH)
+                        cur = conn.cursor()
+                        cur.execute("INSERT INTO face_profiles (user_id, image_path) VALUES (?, ?)", (user_id, filename))
+                        conn.commit()
+                        conn.close()
+                    valid_count += 1
+                else:
+                    invalid_count += 1
+            self.controller.write_log(f"Đã lưu {valid_count} ảnh hợp lệ, loại bỏ {invalid_count} ảnh không đúng.")
+            messagebox.showinfo("Kết quả", f"Đã lưu {valid_count} ảnh hợp lệ, loại bỏ {invalid_count} ảnh không đúng.")
+            self.clear_pending_images()
+        else:  # User mới
+            name = self.name_entry.get().strip()
+            if not name:
+                messagebox.showerror("Lỗi", "Tên không được để trống khi lưu.")
+                return
+            user_id = self.create_new_user_in_db(name)
+            if user_id is None:
+                messagebox.showerror("Lỗi", "Tên này đã tồn tại, vui lòng nhập tên khác!")
+                return
+            person_dir = os.path.join('images_attendance', f"user_{user_id}")
+            os.makedirs(person_dir, exist_ok=True)
+            valid_count = 0
+            duplicate_count = 0
+            for i, img_data in enumerate(self.pending_images):
+                img = cv2.cvtColor(img_data, cv2.COLOR_BGR2RGB)
+                img = cv2.resize(img, (160, 160))
+                pred_name, conf = self.recog_simple.predict_name(img)
+                # Nếu predict ra tên khác Unknown và khác tên mới, tức là trùng người cũ
+                if pred_name != "Unknown" and pred_name != name and conf > 0.65:
+                    duplicate_count += 1
+                    continue
+                if pred_name == "Unknown" or conf < 0.65:
+                    duplicate_count += 1
+                    continue
                 timestamp = datetime.now().strftime('%Y%m%d_%H%M%S_%f')
                 filename = os.path.join(person_dir, f"{timestamp}.jpg")
                 cv2.imwrite(filename, img_data)
-            self.controller.write_log(f"Đã lưu thành công {len(self.pending_images)} ảnh.")
-            messagebox.showinfo("Thành công", f"Đã lưu thành công {len(self.pending_images)} ảnh cho {name}.")
-        except Exception as e:
-            self.controller.write_log(f"[Lỗi] Không thể lưu ảnh: {e}")
-            messagebox.showerror("Lỗi", f"Không thể lưu ảnh: {e}")
-        finally:
+                # Cập nhật DB
+                conn = sqlite3.connect(DB_PATH)
+                cur = conn.cursor()
+                cur.execute("INSERT INTO face_profiles (user_id, image_path) VALUES (?, ?)", (user_id, filename))
+                conn.commit()
+                conn.close()
+                valid_count += 1
+            self.controller.write_log(f"Đã lưu {valid_count} ảnh mới, loại bỏ {duplicate_count} ảnh trùng với người cũ hoặc không phát hiện mặt.")
+            messagebox.showinfo("Kết quả", f"Đã lưu {valid_count} ảnh mới, loại bỏ {duplicate_count} ảnh trùng với người cũ hoặc không phát hiện mặt.")
             self.clear_pending_images()
 
     def clear_pending_images(self, clear_ui=True):
@@ -1435,6 +1608,78 @@ class DataEntryFrame(tk.Frame):
     def _log_on_release(self, event):
         self._log_scroll_start_y = None
         self._log_scroll_start_view = None
+
+    def create_new_user_in_db(self, name):
+        import sqlite3
+        DB_PATH = "database.db"
+        conn = sqlite3.connect(DB_PATH)
+        cur = conn.cursor()
+        # Kiểm tra trùng tên
+        cur.execute("SELECT COUNT(*) FROM users WHERE username = ?", (name,))
+        if cur.fetchone()[0] > 0:
+            conn.close()
+            return None  # Tên đã tồn tại
+        cur.execute("INSERT INTO users (username, full_name, password) VALUES (?, ?, ?)", (name, name, "1"))
+        user_id = cur.lastrowid
+        conn.commit()
+        conn.close()
+        return user_id
+
+    def show_keyboard_frame(self, event=None):
+        if self.keyboard_frame is None or not self.keyboard_frame.winfo_ismapped():
+            self.keyboard_frame = OnScreenKeyboardFrame(self.captured_container, self.name_entry)
+            # Lấy chiều rộng khung ảnh đã chụp
+            self.captured_container.update_idletasks()
+            width = self.captured_container.winfo_width()
+            height = self.keyboard_frame.winfo_reqheight()
+            container_width = self.captured_container.winfo_width()
+            keyboard_width = int(container_width * 0.9)  # 80% chiều rộng
+            x_offset = (container_width - keyboard_width) // 2
+            self.keyboard_frame.place(x=x_offset, y=self.captured_container.winfo_height()-height-25, width=keyboard_width)
+        else:
+            self.keyboard_frame.lift()
+    def hide_keyboard_frame(self):
+        if self.keyboard_frame and self.keyboard_frame.winfo_ismapped():
+            self.keyboard_frame.place_forget()
+
+class OnScreenKeyboardFrame(tk.Frame):
+    def __init__(self, parent, entry_widget, *args, **kwargs):
+        super().__init__(parent, *args, **kwargs)
+        self.entry_widget = entry_widget
+        self.configure(bg='#23272f')
+        keys = [
+            ['1','2','3','4','5','6','7','8','9','0','-'],
+            ['q','w','e','r','t','y','u','i','o','p','_'],
+            ['a','s','d','f','g','h','j','k','l'],
+            ['z','x','c','v','b','n','m','.','@'],
+        ]
+        # Vẽ các nút ký tự
+        for r, row in enumerate(keys):
+            for c, key in enumerate(row):
+                btn = tk.Button(self, text=key, width=3, height=2, command=lambda k=key: self._insert(k), bg='#222c36', fg='white', font=('Arial', 11))
+                btn.grid(row=r, column=c, padx=1, pady=1)
+        # Nút ⌫ ở cuối dòng 3, chiếm 2 dòng (rowspan=2)
+        backspace_btn = tk.Button(self, text='⌫', width=3, height=5, command=self._backspace, bg='#d32f2f', fg='white', font=('Arial', 13, 'bold'))
+        backspace_btn.grid(row=2, column=len(keys[2]), rowspan=2, sticky='ns', padx=2, pady=1)
+        # Hàng cuối: Space và Đóng
+        space_btn = tk.Button(self, text='Space', command=lambda: self._insert(' '), bg='#222c36', fg='white', font=('Arial', 11))
+        space_btn.grid(row=4, column=0, columnspan=6, padx=1, pady=1, sticky='we')
+        close_btn = tk.Button(self, text='Đóng', command=self.hide, bg='#00bcd4', fg='white', font=('Arial', 11, 'bold'))
+        close_btn.grid(row=4, column=6, columnspan=3, padx=1, pady=1, sticky='we')
+    def _insert(self, char):
+        self.entry_widget.insert(tk.INSERT, char)
+        self.entry_widget.focus_set()
+    def _backspace(self):
+        current = self.entry_widget.get()
+        pos = self.entry_widget.index(tk.INSERT)
+        if pos > 0:
+            new = current[:pos-1] + current[pos:]
+            self.entry_widget.delete(0, tk.END)
+            self.entry_widget.insert(0, new)
+            self.entry_widget.icursor(pos-1)
+        self.entry_widget.focus_set()
+    def hide(self):
+        self.place_forget()
 
 if __name__ == '__main__':
     if sys.platform.startswith('win'):

@@ -13,6 +13,7 @@ from facenet_pytorch import MTCNN
 from PIL import Image
 import sqlite3
 import json
+from db import get_training_data_summary
 
 def clear_log_file():
     """Xóa nội dung file training.log."""
@@ -41,14 +42,10 @@ def clear_processed_faces():
     os.makedirs('processed_faces')
     logging.info("Đã xóa và tạo lại thư mục processed_faces")
 
-def extract_and_save_faces_from_db(target_size=(160, 160)):
+def smart_extract_and_save_faces_from_db(target_size=(160, 160)):
     """
-    Trích xuất khuôn mặt từ ảnh và lưu vào processed_faces, bảo toàn độ sáng và màu sắc.
-    Args:
-        images_dir: Thư mục chứa ảnh gốc
-        target_size: Kích thước đầu ra của ảnh khuôn mặt
-    Returns:
-        processed_faces_dir: Đường dẫn đến thư mục chứa ảnh đã xử lý
+    Trích xuất khuôn mặt từ ảnh và lưu vào processed_faces một cách thông minh.
+    Chỉ xử lý lại ảnh đã thay đổi hoặc chưa được xử lý.
     """
     mtcnn = MTCNN(
         image_size=target_size[0],
@@ -60,6 +57,7 @@ def extract_and_save_faces_from_db(target_size=(160, 160)):
     
     processed_faces_dir = 'processed_faces'
     os.makedirs(processed_faces_dir, exist_ok=True)
+    
     # Lấy danh sách ảnh từ DB
     conn = sqlite3.connect('database.db')
     conn.row_factory = sqlite3.Row
@@ -71,48 +69,75 @@ def extract_and_save_faces_from_db(target_size=(160, 160)):
     ''')
     data = cur.fetchall()
     conn.close()
+    
     total_images = len(data)
     total_processed = 0
+    total_skipped = 0
     total_failed = 0
     user_id_to_fullname = {}
+    
+    logging.info(f"Bắt đầu xử lý {total_images} ảnh...")
+    
     for idx, row in enumerate(data, 1):
         user_id = row['user_id']
         full_name = row['full_name']
         user_id_to_fullname[str(user_id)] = full_name
         image_path = row['image_path']
+        
+        # Tạo đường dẫn output
         output_person_dir = os.path.join(processed_faces_dir, str(user_id))
         os.makedirs(output_person_dir, exist_ok=True)
-        try:
-            img = Image.open(image_path).convert('RGB')
-            face = mtcnn(img)
-            if face is not None:
-                face = face.permute(1, 2, 0).numpy()
-                face = (face - face.min()) / (face.max() - face.min() + 1e-8)
-                face = (face * 255.0).astype(np.uint8)
-                face_pil = Image.fromarray(face)
-                output_path = os.path.join(output_person_dir, f"processed_{os.path.basename(image_path)}")
-                face_pil.save(output_path)
-                total_processed += 1
-            else:
-                logging.warning(f"Không phát hiện được khuôn mặt trong ảnh: {image_path}")
+        output_filename = f"processed_{os.path.basename(image_path)}"
+        output_path = os.path.join(output_person_dir, output_filename)
+        
+        # Kiểm tra xem ảnh đã được xử lý chưa và có cần xử lý lại không
+        need_process = True
+        if os.path.exists(output_path):
+            # So sánh thời gian sửa đổi
+            original_mtime = os.path.getmtime(image_path)
+            processed_mtime = os.path.getmtime(output_path)
+            
+            if processed_mtime >= original_mtime:
+                # Ảnh đã được xử lý và không thay đổi
+                need_process = False
+                total_skipped += 1
+        
+        if need_process:
+            try:
+                img = Image.open(image_path).convert('RGB')
+                face = mtcnn(img)
+                if face is not None:
+                    face = face.permute(1, 2, 0).numpy()
+                    face = (face - face.min()) / (face.max() - face.min() + 1e-8)
+                    face = (face * 255.0).astype(np.uint8)
+                    face_pil = Image.fromarray(face)
+                    face_pil.save(output_path)
+                    total_processed += 1
+                else:
+                    logging.warning(f"Không phát hiện được khuôn mặt trong ảnh: {image_path}")
+                    total_failed += 1
+            except Exception as e:
+                logging.error(f"Lỗi xử lý ảnh {image_path}: {e}")
                 total_failed += 1
-        except Exception as e:
-            logging.error(f"Lỗi xử lý ảnh {image_path}: {e}")
-            total_failed += 1
-            continue
-        # Cập nhật tiến độ sau mỗi 20 ảnh đã kiểm tra (không quan trọng thành công/thất bại)
+                continue
+        
+        # Cập nhật tiến độ
         if idx % 20 == 0 or idx == total_images:
             percent = round((idx / total_images) * 50) if total_images else 0
             logging.info(f"Tiến trình: {idx}/{total_images} ({percent}%)")
             print(f"Tiến trình: {idx}/{total_images} ({percent}%)", flush=True)
+    
     logging.info(f"Hoàn thành xử lý ảnh:")
-    logging.info(f"- Tổng số ảnh đã xử lý thành công: {total_processed}")
-    logging.info(f"- Tổng số ảnh thất bại: {total_failed}")
+    logging.info(f"- Ảnh mới xử lý: {total_processed}")
+    logging.info(f"- Ảnh đã có (bỏ qua): {total_skipped}")
+    logging.info(f"- Ảnh thất bại: {total_failed}")
     logging.info(f"Tiến trình: (50%)")
     print(f"Tiến trình: Hoàn thành xử lý ảnh (50%)", flush=True)
+    
     # Lưu ánh xạ ra file
     with open('user_id_to_fullname.json', 'w', encoding='utf-8') as f:
         json.dump(user_id_to_fullname, f, ensure_ascii=False)
+    
     return processed_faces_dir
 
 def process_batch(batch, embedding_model='Facenet512'):
@@ -287,10 +312,66 @@ def create_training_data(
 
 def main():
     try:
+        # Kiểm tra dữ liệu trước khi train
+        print("🔍 Kiểm tra dữ liệu training...")
+        
+        # Import từ check_training_data để tránh trùng lặp
+        from check_training_data import detect_mapping_errors
+        
+        # Kiểm tra cơ bản
+        summary = get_training_data_summary()
+        if summary['total_users'] == 0:
+            print("❌ Không có users nào trong database!")
+            print("Vui lòng thêm users trước khi train.")
+            return
+        
+        if summary['total_images'] == 0:
+            print("❌ Không c1ó ảnh nào trong database!")
+            print("Vui lòng thêm ảnh trước khi train.")
+            return
+        
+        # Kiểm tra users có ít ảnh
+        if summary['users_with_few_images']:
+            print("⚠️  Cảnh báo: Có users có ít hơn 5 ảnh:")
+            for user in summary['users_with_few_images']:
+                print(f"  - {user['username']} ({user['image_count']} ảnh)")
+            print("Các users này sẽ bị bỏ qua khi train.")
+        
+        # Kiểm tra mapping errors
+        mapping_results = detect_mapping_errors()
+        if mapping_results['errors']:
+            print("❌ Phát hiện lỗi mapping:")
+            for error in mapping_results['errors']:
+                print(f"  - {error['type']}: {error['count']} lỗi")
+            print("Vui lòng chạy: python fix_database.py để sửa lỗi")
+            return
+        
+        print("✅ Dữ liệu hợp lệ, bắt đầu train...")
+        print(f"📊 Tổng users: {summary['total_users']}, Tổng ảnh: {summary['total_images']}")
+        
+        # Hỏi người dùng về cách xử lý ảnh
+        print("\n🔄 CHỌN CÁCH XỬ LÝ ẢNH:")
+        print("1. Thông minh (chỉ xử lý ảnh đã thay đổi) - Khuyến nghị")
+        print("2. Xử lý lại tất cả ảnh")
+        
+        while True:
+            choice = input("Chọn (1/2): ").strip()
+            if choice in ['1', '2']:
+                break
+            print("Vui lòng chọn 1 hoặc 2")
+        
         clear_log_file()  # Xóa log cũ trước khi bắt đầu
         ensure_directories()
-        clear_processed_faces()
-        processed_faces_dir = extract_and_save_faces_from_db(target_size=(160, 160))
+        
+        if choice == '1':
+            # Xử lý thông minh
+            print("🚀 Sử dụng xử lý thông minh...")
+            processed_faces_dir = smart_extract_and_save_faces_from_db(target_size=(160, 160))
+        else:
+            # Xử lý lại tất cả
+            print("🔄 Xử lý lại tất cả ảnh...")
+            clear_processed_faces()
+            processed_faces_dir = smart_extract_and_save_faces_from_db(target_size=(160, 160))
         create_training_data(
             processed_faces_dir=processed_faces_dir,
             output_train_file="models/train_FN.h5",

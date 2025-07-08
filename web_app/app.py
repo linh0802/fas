@@ -208,6 +208,12 @@ def save_face():
     if recog.train_data is None or recog.label_encoder is None:
         return jsonify({'error': 'Hệ thống chưa có dữ liệu training hoặc label encoder. Vui lòng huấn luyện lại mô hình.'}), 500
 
+    # Kiểm tra user đã có trong model chưa
+    user_in_model = False
+    if recog.label_encoder is not None:
+        all_names = set(recog.label_encoder.inverse_transform(recog.train_data['labels']))
+        user_in_model = full_name.strip().lower() in [n.strip().lower() for n in all_names]
+
     valid_images = []
     invalid_indices = []
     log_messages = []
@@ -222,28 +228,31 @@ def save_face():
                 continue
             face_img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
             face_img = cv2.resize(face_img, (160, 160))
-            embedding, log_msg = recog.get_face_embedding(face_img)
-            if embedding is None:
+            name, confidence = recog.predict_name(face_img)
+            log_messages.append(f"Ảnh {idx}: {name} (conf={confidence:.2f})")
+            if name == "Unknown" or confidence <= 0.65:
                 invalid_indices.append(idx)
                 continue
-            similarities = np.dot(recog.train_data['embeddings'], embedding) / (np.linalg.norm(recog.train_data['embeddings'], axis=1) * np.linalg.norm(embedding) + 1e-8)
-            best_match_index = np.argmax(similarities)
-            confidence = similarities[best_match_index]
-            if confidence < recog.FACE_RECOGNITION_THRESHOLD:
-                invalid_indices.append(idx)
-                log_messages.append(f"Ảnh {idx}: Không đủ độ tin cậy.")
-                continue
-            predicted_label = recog.train_data['labels'][best_match_index]
-            try:
-                name = recog.label_encoder.inverse_transform([int(predicted_label)])[0]
-            except Exception:
-                name = str(predicted_label)
-            if name.strip().lower() != full_name.strip().lower():
-                invalid_indices.append(idx)
-                log_messages.append(f"Ảnh {idx}: Không trùng tên user.")
-                continue
-            valid_images.append((idx, img))
-            log_messages.append(f"Ảnh {idx}: Nhận diện thành công cho user {full_name}.")
+            # Nếu user đã có trong model, chỉ lưu nếu đúng tên
+            if user_in_model:
+                if confidence < recog.FACE_RECOGNITION_THRESHOLD:
+                    invalid_indices.append(idx)
+                    log_messages.append(f"Ảnh {idx}: Không đủ độ tin cậy.")
+                    continue
+                if name.strip().lower() != full_name.strip().lower():
+                    invalid_indices.append(idx)
+                    log_messages.append(f"Ảnh {idx}: Không trùng tên user.")
+                    continue
+                valid_images.append((idx, img))
+                log_messages.append(f"Ảnh {idx}: Nhận diện thành công cho user {full_name}.")
+            else:
+                # Nếu user chưa có trong model, chỉ lưu nếu không trùng ai
+                if confidence >= recog.FACE_RECOGNITION_THRESHOLD:
+                    invalid_indices.append(idx)
+                    log_messages.append(f"Ảnh {idx}: Gương mặt này đã trùng user ({name}), không được phép lưu.")
+                    continue
+                valid_images.append((idx, img))
+                log_messages.append(f"Ảnh {idx}: Đã lưu ảnh thành công cho user mới.")
         except Exception as e:
             log_messages.append(f"Ảnh {idx}: Lỗi nhận diện: {e}")
             invalid_indices.append(idx)
@@ -261,13 +270,10 @@ def save_face():
             filename = os.path.join(user_folder, f"face_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}_{idx}.jpg")
             cv2.imwrite(filename, img)
             saved_paths.append(filename)
+            # Cập nhật DB: thêm vào bảng face_profiles
+            cur.execute("INSERT INTO face_profiles(user_id, image_path) VALUES (?, ?)", (user_id, filename))
         except Exception as e:
             log_messages.append(f"Ảnh {idx}: Lỗi lưu ảnh: {e}")
-    for path in saved_paths:
-        cur.execute("""
-            INSERT INTO face_profiles(user_id, image_path)
-            VALUES (?, ?)
-        """, (user_id, path))
     conn.commit()
     conn.close()
 

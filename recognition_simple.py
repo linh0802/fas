@@ -4,6 +4,7 @@ import h5py
 import pickle
 import cv2
 import os
+from sklearn.metrics.pairwise import cosine_similarity
 
 class RecognitionSimple:
     def __init__(self, model_path='models/train_FN.h5', threshold=0.65):
@@ -43,4 +44,22 @@ class RecognitionSimple:
             return embedding, "Nhận diện thành công"
         except Exception as e:
             print(f"Lỗi lấy embedding: {e}")
-            return None, f"Lỗi lấy embedding: {e}" 
+            return None, f"Lỗi lấy embedding: {e}"
+
+    def predict_name(self, face_img):
+        """
+        Nhận diện tên user từ ảnh khuôn mặt (face_img: RGB 160x160).
+        Trả về (tên, độ tin cậy) hoặc ("Unknown", 0)
+        """
+        if self.train_data is None or self.label_encoder is None:
+            return "Unknown", 0
+        embedding, _ = self.get_face_embedding(face_img)
+        if embedding is None:
+            return "Unknown", 0
+        sims = cosine_similarity([embedding], self.train_data['embeddings'])[0]
+        best_idx = np.argmax(sims)
+        best_score = sims[best_idx]
+        if best_score > self.FACE_RECOGNITION_THRESHOLD:
+            name = self.label_encoder.inverse_transform([self.train_data['labels'][best_idx]])[0]
+            return name, best_score
+        return "Unknown", best_score 

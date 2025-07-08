@@ -31,7 +31,8 @@ Nếu muốn dừng hoặc kiểm tra trạng thái:
 sudo systemctl stop webapp.service
 sudo systemctl status webapp.service
 
-Khởi động hệ thống
-cd /home/admin/Desktop/faceattendance
-source myenv/bin/activate
-python3 recog_thread.py
+
+git status
+git add .
+git commit -m "tối ưu hệ thống"
+git push

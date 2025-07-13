@@ -334,15 +334,14 @@ def detect_mapping_errors():
         # So sánh với database
         db_mapping = {}
         for user in users_with_images:
-            if user['full_name']:
+            if user['full_name'] and user['image_count'] > 0:  # CHỈ LẤY USER CÓ ẢNH
                 db_mapping[str(user['user_id'])] = user['full_name']
         
-        # Tìm mapping không khớp
+        # Tìm mapping không khớp chỉ cho user có ảnh
         mismatches = []
-        for user_id in set(db_mapping.keys()) | set(training_mapping.keys()):
+        for user_id in db_mapping.keys():
             db_name = db_mapping.get(user_id)
             training_name = training_mapping.get(user_id)
-            
             if db_name != training_name:
                 mismatches.append({
                     'user_id': user_id,

@@ -14,6 +14,8 @@ from PIL import Image
 import sqlite3
 import json
 from db import get_training_data_summary
+import sys
+import time
 
 def clear_log_file():
     """Xóa nội dung file training.log."""
@@ -244,7 +246,7 @@ def create_training_data(
                         failed_images.append((image_file, str(e)))
                         continue
                 if batch_images:
-                    with ThreadPoolExecutor(max_workers=4) as executor:
+                    with ThreadPoolExecutor(max_workers=2) as executor:  # Giảm tải hệ thống
                         batch_embeddings = executor.submit(process_batch, batch_images, embedding_model).result()
                     for embedding, image_file in zip(batch_embeddings, batch_paths):
                         if embedding:
@@ -312,6 +314,19 @@ def create_training_data(
 
 def main():
     try:
+        start_time = time.time()
+        # Giảm ưu tiên CPU cho tiến trình train
+        try:
+            os.nice(10)
+        except Exception:
+            pass
+        # Kiểm tra argument dòng lệnh
+        mode = None
+        if len(sys.argv) > 1:
+            if '--smart' in sys.argv:
+                mode = '1'
+            elif '--all' in sys.argv:
+                mode = '2'
         # Kiểm tra dữ liệu trước khi train
         print("🔍 Kiểm tra dữ liệu training...")
         
@@ -350,16 +365,17 @@ def main():
         print(f"📊 Tổng users: {summary['total_users']}, Tổng ảnh: {summary['total_images']}")
         
         # Hỏi người dùng về cách xử lý ảnh
-        print("\n🔄 CHỌN CÁCH XỬ LÝ ẢNH:")
-        print("1. Thông minh (chỉ xử lý ảnh đã thay đổi) - Khuyến nghị")
-        print("2. Xử lý lại tất cả ảnh")
-        
-        while True:
-            choice = input("Chọn (1/2): ").strip()
-            if choice in ['1', '2']:
-                break
-            print("Vui lòng chọn 1 hoặc 2")
-        
+        if mode is None:
+            print("\n🔄 CHỌN CÁCH XỬ LÝ ẢNH:")
+            print("1. Thông minh (chỉ xử lý ảnh đã thay đổi) - Khuyến nghị")
+            print("2. Xử lý lại tất cả ảnh")
+            while True:
+                choice = input("Chọn (1/2): ").strip()
+                if choice in ['1', '2']:
+                    break
+                print("Vui lòng chọn 1 hoặc 2")
+        else:
+            choice = mode
         clear_log_file()  # Xóa log cũ trước khi bắt đầu
         ensure_directories()
         
@@ -383,6 +399,14 @@ def main():
     except Exception as e:
         logging.error(f"Lỗi trong quá trình train: {str(e)}")
         raise
+    # Sau khi hoàn thành train (sau khi in tiến trình 100%)
+    end_time = time.time()
+    elapsed = int(end_time - start_time)
+    minutes = elapsed // 60
+    seconds = elapsed % 60
+    elapsed_str = f"{minutes} phút {seconds} giây"
+    logging.info(f"Thời gian huấn luyện: {elapsed_str}")
+    print(f"⏱️ Thời gian huấn luyện: {elapsed_str}", flush=True)
 
 if __name__ == "__main__":
     main()

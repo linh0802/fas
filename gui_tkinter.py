@@ -794,20 +794,20 @@ class RecognitionFrame(tk.Frame):
                 except Exception as e:
                     self.write_log(f"Lỗi khi giải phóng PIR cũ: {e}")
                 self.pir_sensor = None
-            
             # Khởi tạo RecognitionSystem với try-catch riêng
             try:
                 self.recognition_system = RecognitionSystem(gui_log_func=self.write_log)
                 self.recognition_system.attendance_callback = self.handle_callback
                 self.pir_sensor = self.recognition_system.pir_sensor if hasattr(self.recognition_system, 'pir_sensor') else None
                 self.write_log('=>Khởi tạo model và cảm biến thành công.')
+                self.model_ready = True
             except Exception as e:
                 self.write_log(f"=>Lỗi khởi tạo RecognitionSystem: {e}")
                 self.webcam_status_var.set('Lỗi khởi tạo model.')
                 self.start_btn.config(state='normal', text='Khởi động lại')
                 self.stop_btn.config(state='disabled')
+                self.model_ready = False
                 return
-            
             # Khởi tạo webcam với try-catch riêng
             try:
                 if not self.controller.initialize_webcam():
@@ -822,21 +822,18 @@ class RecognitionFrame(tk.Frame):
                 self.start_btn.config(state='normal', text='Khởi động lại')
                 self.stop_btn.config(state='disabled')
                 return
-            
             # Khởi tạo các thread
             try:
                 self.running = True
                 self.pir_last_motion_time = time.time()
                 self.pir_idle = False
                 self.webcam_status_var.set('Hệ thống đang nhận diện')
-                
                 self.webcam_thread = threading.Thread(target=self.update_webcam, daemon=True)
                 self.recognition_thread = threading.Thread(target=self.recognition_processing_thread, daemon=True)
                 self.tts_thread = threading.Thread(target=self.tts_processing_thread, daemon=True)
                 self.webcam_thread.start()
                 self.recognition_thread.start()
                 self.tts_thread.start()
-                
                 self.update_gui_from_queue()
                 self.start_btn.config(state='disabled', text='Khởi động lại')
                 self.stop_btn.config(state='normal')
@@ -848,7 +845,6 @@ class RecognitionFrame(tk.Frame):
                 self.webcam_status_var.set('Lỗi khởi tạo thread.')
                 self.start_btn.config(state='normal', text='Khởi động lại')
                 self.stop_btn.config(state='disabled')
-                
         except Exception as e:
             self.write_log(f"=>Lỗi nghiêm trọng khi khởi tạo: {e}")
             self.webcam_status_var.set('Lỗi khởi tạo hệ thống.')
@@ -961,7 +957,7 @@ class RecognitionFrame(tk.Frame):
     def recognition_processing_thread(self):
         """Luồng riêng chỉ để xử lý AI"""
         while self.running:
-            if self.pir_idle or not self.recognition_system:
+            if self.pir_idle or not getattr(self, 'model_ready', False):
                 time.sleep(0.1)
                 continue
 
@@ -1557,14 +1553,17 @@ class DataEntryFrame(tk.Frame):
             if not messagebox.askyesno("Xác nhận", "Bạn có ảnh chưa được lưu. Nếu tiếp tục huấn luyện, các ảnh này sẽ bị mất. Bạn có muốn tiếp tục không?"):
                 return
         self.clear_pending_images()
+        self.stop_webcam()
+        self.controller.release_webcam()
+        self.controller.write_log("Đã tắt webcam và giải phóng tài nguyên trước khi huấn luyện.")
         self.train_btn.config(state='disabled', text='Đang huấn luyện...')
-        self.controller.write_log("Bắt đầu quá trình huấn luyện lại...")
-        threading.Thread(target=self._run_train_script, daemon=True).start()
+        self.controller.write_log("Bắt đầu quá trình huấn luyện lại (chế độ: thông minh)...")
+        threading.Thread(target=self._run_train_script_with_mode, args=("--smart",), daemon=True).start()
 
-    def _run_train_script(self):
+    def _run_train_script_with_mode(self, mode):
         try:
             process = subprocess.Popen(
-                ['python3', TRAIN_SCRIPT],
+                ['python3', TRAIN_SCRIPT, mode],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
@@ -1577,7 +1576,6 @@ class DataEntryFrame(tk.Frame):
                     if output == '' and process.poll() is not None:
                         break
                     if output:
-                        # Ghi trực tiếp vào khung log của DataEntryFrame
                         self.log_text.config(state='normal')
                         self.log_text.insert('end', output.strip() + '\n')
                         self.log_text.see('end')
